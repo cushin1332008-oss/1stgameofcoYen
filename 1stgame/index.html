@@ -200,34 +200,65 @@
     }
   }
 
-  function attachQuestionTextListener() {
-    // Lắng nghe nội dung câu hỏi do giáo viên nhập/sửa trong trang admin, hiện live cho học sinh
-    db.ref('game/questions').on('value', snap => {
-      const qs = snap.val() || {};
-      for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
-        const q = qs[i] || DEFAULT_QUESTIONS[i];
-        const titleEl = document.getElementById(`qtitle-${i}`);
-        if (titleEl) titleEl.textContent = (q && q.text) ? `Câu ${i}: ${q.text}` : `Câu ${i}`;
-        const listEl = document.getElementById(`optlist-${i}`);
-        if (listEl) {
-          if (q && q.options && (q.options.A || q.options.B || q.options.C)) {
-            listEl.innerHTML = ['A', 'B', 'C'].map(o => q.options[o] ? `<div><strong>${o}.</strong> ${q.options[o]}</div>` : '').join('');
-          } else {
-            listEl.innerHTML = '';
-          }
+  let latestQuestionsData = {};
+
+  function renderQuestionText() {
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+      const q = latestQuestionsData[i] || DEFAULT_QUESTIONS[i];
+      const titleEl = document.getElementById(`qtitle-${i}`);
+      if (titleEl) titleEl.textContent = (q && q.text) ? `Câu ${i}: ${q.text}` : `Câu ${i}`;
+      const listEl = document.getElementById(`optlist-${i}`);
+      if (listEl) {
+        if (q && q.options && (q.options.A || q.options.B || q.options.C)) {
+          listEl.innerHTML = ['A', 'B', 'C'].map(o => q.options[o] ? `<div><strong>${o}.</strong> ${q.options[o]}</div>` : '').join('');
+        } else {
+          listEl.innerHTML = '';
         }
       }
-    });
+    }
   }
 
-  // Khởi tạo: đọc số lượng câu hỏi cô đã cấu hình trước rồi mới dựng giao diện đặt cược
-  let readyPromise = db.ref('game/totalQuestions').once('value').then(snap => {
-    TOTAL_QUESTIONS = snap.val() || 10;
-    currentBets = emptyBets();
-    buildQuestionCards();
-    attachQuestionTextListener();
+  function captureCurrentBetsFromInputs() {
+    const b = {};
+    document.querySelectorAll('.coin-input').forEach(input => {
+      const q = input.getAttribute('data-q'), opt = input.getAttribute('data-opt');
+      if (!b[q]) b[q] = { A: 0, B: 0, C: 0 };
+      b[q][opt] = parseInt(input.value) || 0;
+    });
+    return b;
+  }
+
+  let readyResolved = false;
+  let resolveReady;
+  let readyPromise = new Promise(res => { resolveReady = res; });
+
+  // Lắng nghe số lượng câu hỏi LIÊN TỤC — nếu cô thêm/bớt câu giữa lúc học sinh đang làm, form tự cập nhật ngay, không mất xu đã nhập cho các câu cũ
+  db.ref('game/totalQuestions').on('value', snap => {
+    const n = snap.val() || 10;
+    const stillFillingForm = readyResolved && !hasSubmitted && document.getElementById('betForm').style.display !== 'none';
+    const preserved = stillFillingForm ? captureCurrentBetsFromInputs() : null;
+
+    TOTAL_QUESTIONS = n;
+    if (!readyResolved || stillFillingForm) {
+      buildQuestionCards();
+      renderQuestionText();
+      if (preserved) {
+        Object.keys(preserved).forEach(q => {
+          ['A', 'B', 'C'].forEach(opt => {
+            const el = document.querySelector(`.coin-input[data-q="${q}"][data-opt="${opt}"]`);
+            if (el && preserved[q][opt]) el.value = preserved[q][opt];
+          });
+        });
+        updateCoins();
+      }
+    }
+    if (!readyResolved) { readyResolved = true; resolveReady(); }
   });
 
+  db.ref('game/questions').on('value', snap => {
+    latestQuestionsData = snap.val() || {};
+    renderQuestionText();
+  });
 
   async function joinTeam() {
     const name = document.getElementById('teamNameInput').value.trim();
