@@ -83,6 +83,16 @@
 </div>
 
 <div class="card">
+  <h3>⚙️ Cấu hình ván chơi</h3>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <label>Số lượng câu hỏi:</label>
+    <input type="number" id="totalQInput" min="1" max="30" value="10" style="width:80px; padding:8px; border-radius:8px; border:1px solid #444; background:#2b2b2b; color:#fff; text-align:center;">
+    <button class="btn btn-unlock" style="width:auto; padding:8px 16px;" onclick="saveTotalQuestions()">Lưu số câu hỏi</button>
+  </div>
+  <p style="color:#888; font-size:0.8rem; margin-top:8px;">Bài chỉ có 4 câu thì đổi thành 4, có 6 câu thì đổi thành 6... Đặt số này <strong>trước khi</strong> học sinh vào chơi (đổi giữa chừng khi đã có đội tham gia có thể làm lệch dữ liệu).</p>
+</div>
+
+<div class="card">
   <h3>📝 Quản lý câu hỏi (hiện cho học sinh xem khi đặt cược)</h3>
   <p style="color:#888; font-size:0.85rem;">Nhập nội dung đề bài và đáp án A/B/C — học sinh sẽ thấy ngay khi mở trang. Có thể để trống câu nào đó nếu chỉ muốn đặt cược mà không hiện đề. Cô có thể sửa lại bất cứ lúc nào, kể cả giữa buổi học.</p>
   <button class="btn btn-unlock" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="fillSampleQuestions()">⚡ Điền mẫu Câu 1–4 (theo đề Listening Section 3)</button>
@@ -91,7 +101,7 @@
 </div>
 
 <div class="card">
-  <h3>Đáp án đúng (10 câu)</h3>
+  <h3>Đáp án đúng (<span id="totalQLabel">10</span> câu)</h3>
   <div id="answerRows"></div>
   <button class="btn-reveal" id="revealBtn" onclick="computeAndReveal()" disabled>✅ CÔNG BỐ KẾT QUẢ & TÍNH ĐIỂM</button>
 </div>
@@ -145,38 +155,82 @@
 
   let gameState = { status: 'open', correctAnswers: {} };
   let teamsData = {};
+  let TOTAL_QUESTIONS = 10;
 
-  // Build 10 ô soạn câu hỏi cho giáo viên
-  const qEditContainer = document.getElementById('questionEditRows');
-  for (let i = 1; i <= 10; i++) {
-    qEditContainer.innerHTML += `
-      <div class="qedit-card">
-        <strong>Câu ${i}</strong>
-        <textarea id="edit-qtext-${i}" placeholder="Nội dung câu hỏi ${i}..."></textarea>
-        <div class="qedit-opts">
-          <input id="edit-qopt-${i}-A" placeholder="Đáp án A">
-          <input id="edit-qopt-${i}-B" placeholder="Đáp án B">
-          <input id="edit-qopt-${i}-C" placeholder="Đáp án C">
-        </div>
-      </div>`;
+  async function saveTotalQuestions() {
+    const n = parseInt(document.getElementById('totalQInput').value) || 10;
+    if (n < 1 || n > 30) { alert('Số câu hỏi phải từ 1 đến 30'); return; }
+    await db.ref('game/totalQuestions').set(n);
+    TOTAL_QUESTIONS = n;
+    document.getElementById('totalQLabel').textContent = n;
+    buildQuestionEditRows();
+    buildAnswerRows();
+    alert('Đã lưu số câu hỏi: ' + n + '. Trang học sinh sẽ dùng đúng số câu này.');
   }
 
-  // Nạp câu hỏi đã lưu trước đó (nếu có) khi mở trang admin
-  db.ref('game/questions').once('value').then(snap => {
-    const qs = snap.val() || {};
-    for (let i = 1; i <= 10; i++) {
-      const q = qs[i];
-      if (!q) continue;
-      document.getElementById(`edit-qtext-${i}`).value = q.text || '';
-      document.getElementById(`edit-qopt-${i}-A`).value = (q.options && q.options.A) || '';
-      document.getElementById(`edit-qopt-${i}-B`).value = (q.options && q.options.B) || '';
-      document.getElementById(`edit-qopt-${i}-C`).value = (q.options && q.options.C) || '';
+  function buildQuestionEditRows() {
+    const qEditContainer = document.getElementById('questionEditRows');
+    qEditContainer.innerHTML = '';
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+      qEditContainer.innerHTML += `
+        <div class="qedit-card">
+          <strong>Câu ${i}</strong>
+          <textarea id="edit-qtext-${i}" placeholder="Nội dung câu hỏi ${i}..."></textarea>
+          <div class="qedit-opts">
+            <input id="edit-qopt-${i}-A" placeholder="Đáp án A">
+            <input id="edit-qopt-${i}-B" placeholder="Đáp án B">
+            <input id="edit-qopt-${i}-C" placeholder="Đáp án C">
+          </div>
+        </div>`;
     }
+    // Nạp lại nội dung đã lưu trước đó (nếu có) cho đúng số câu hiện tại
+    db.ref('game/questions').once('value').then(snap => {
+      const qs = snap.val() || {};
+      for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+        const q = qs[i];
+        if (!q) continue;
+        const elText = document.getElementById(`edit-qtext-${i}`);
+        if (elText) elText.value = q.text || '';
+        const elA = document.getElementById(`edit-qopt-${i}-A`);
+        if (elA) elA.value = (q.options && q.options.A) || '';
+        const elB = document.getElementById(`edit-qopt-${i}-B`);
+        if (elB) elB.value = (q.options && q.options.B) || '';
+        const elC = document.getElementById(`edit-qopt-${i}-C`);
+        if (elC) elC.value = (q.options && q.options.C) || '';
+      }
+    });
+  }
+
+  function buildAnswerRows() {
+    const answerRows = document.getElementById('answerRows');
+    answerRows.innerHTML = '';
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+      answerRows.innerHTML += `
+        <div class="q-row">
+          <span class="qlabel">Câu ${i}</span>
+          <button class="opt-btn" id="opt-${i}-A" onclick="setCorrect(${i},'A')">A</button>
+          <button class="opt-btn" id="opt-${i}-B" onclick="setCorrect(${i},'B')">B</button>
+          <button class="opt-btn" id="opt-${i}-C" onclick="setCorrect(${i},'C')">C</button>
+          <span class="opt-totals" id="opttotals-${i}"></span>
+          <div class="q-context" id="qcontext-${i}"></div>
+        </div>`;
+    }
+    updateStatusUI();
+    renderOptionTotals();
+  }
+
+  // Đọc số lượng câu hỏi cô đã cấu hình trước đó rồi mới dựng các form soạn đề / chọn đáp án
+  db.ref('game/totalQuestions').once('value').then(snap => {
+    TOTAL_QUESTIONS = snap.val() || 10;
+    document.getElementById('totalQInput').value = TOTAL_QUESTIONS;
+    document.getElementById('totalQLabel').textContent = TOTAL_QUESTIONS;
+    buildQuestionEditRows();
+    buildAnswerRows();
   });
 
   async function saveQuestions() {
     const questions = {};
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       const text = document.getElementById(`edit-qtext-${i}`).value.trim();
       const A = document.getElementById(`edit-qopt-${i}-A`).value.trim();
       const B = document.getElementById(`edit-qopt-${i}-B`).value.trim();
@@ -209,24 +263,10 @@
     alert('Đã điền mẫu Câu 1–4. Cô kéo xuống điền tiếp Câu 5–10 theo đề của mình, rồi bấm "LƯU CÂU HỎI".');
   }
 
-  // Build 10 hàng chọn đáp án
-  const answerRows = document.getElementById('answerRows');
-  for (let i = 1; i <= 10; i++) {
-    answerRows.innerHTML += `
-      <div class="q-row">
-        <span class="qlabel">Câu ${i}</span>
-        <button class="opt-btn" id="opt-${i}-A" onclick="setCorrect(${i},'A')">A</button>
-        <button class="opt-btn" id="opt-${i}-B" onclick="setCorrect(${i},'B')">B</button>
-        <button class="opt-btn" id="opt-${i}-C" onclick="setCorrect(${i},'C')">C</button>
-        <span class="opt-totals" id="opttotals-${i}"></span>
-        <div class="q-context" id="qcontext-${i}"></div>
-      </div>`;
-  }
-
   // Hiện lại nội dung đề + đáp án (đã nhập ở khu Quản lý câu hỏi) ngay tại khu chọn đáp án đúng, để cô không cần nhớ hay tìm đề giấy
   db.ref('game/questions').on('value', snap => {
     const qs = snap.val() || {};
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       const q = qs[i];
       const el = document.getElementById(`qcontext-${i}`);
       if (!el) continue;
@@ -273,14 +313,16 @@
       lockBtn.textContent = '🔒 Khoá đặt cược'; lockBtn.className = 'btn btn-lock';
     }
 
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       ['A','B','C'].forEach(opt => {
-        document.getElementById(`opt-${i}-${opt}`).classList.toggle('selected', gameState.correctAnswers[i] === opt);
+        const btn = document.getElementById(`opt-${i}-${opt}`);
+        if (btn) btn.classList.toggle('selected', gameState.correctAnswers[i] === opt);
       });
     }
 
-    const allSet = Array.from({length:10}, (_,i)=>i+1).every(i => gameState.correctAnswers[i]);
-    document.getElementById('revealBtn').disabled = !allSet || gameState.status === 'revealed';
+    const allSet = Array.from({length: TOTAL_QUESTIONS}, (_,i)=>i+1).every(i => gameState.correctAnswers[i]);
+    const revealBtn = document.getElementById('revealBtn');
+    if (revealBtn) revealBtn.disabled = !allSet || gameState.status === 'revealed';
   }
 
   function toggleLock() {
@@ -297,7 +339,7 @@
     tbody.innerHTML = ids.map(id => {
       const t = teamsData[id];
       let spent = 0;
-      if (t.bets) for (let i = 1; i <= 10; i++) spent += (t.bets[i]?.A||0)+(t.bets[i]?.B||0)+(t.bets[i]?.C||0);
+      if (t.bets) for (let i = 1; i <= TOTAL_QUESTIONS; i++) spent += (t.bets[i]?.A||0)+(t.bets[i]?.B||0)+(t.bets[i]?.C||0);
       return `<tr class="${t.submitted ? 'submitted' : ''}">
         <td>${t.name}</td>
         <td>${spent}</td>
@@ -308,7 +350,7 @@
   }
 
   function renderOptionTotals() {
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       let totals = { A: 0, B: 0, C: 0 };
       Object.values(teamsData).forEach(t => {
         if (t.bets && t.bets[i]) { totals.A += t.bets[i].A||0; totals.B += t.bets[i].B||0; totals.C += t.bets[i].C||0; }
@@ -329,7 +371,7 @@
 
   async function computeAndReveal() {
     const correct = gameState.correctAnswers || {};
-    for (let q = 1; q <= 10; q++) {
+    for (let q = 1; q <= TOTAL_QUESTIONS; q++) {
       if (!correct[q]) { alert('Chưa chọn đáp án đúng cho câu ' + q); return; }
     }
     if (!confirm('Công bố kết quả và tính điểm cho cả lớp? Không thể hoàn tác (trừ khi bấm "Ván mới").')) return;
@@ -345,7 +387,7 @@
       const payoutTotal = {}; teamIds.forEach(id => payoutTotal[id] = 0);
       const questionResults = {}; teamIds.forEach(id => questionResults[id] = {});
 
-      for (let q = 1; q <= 10; q++) {
+      for (let q = 1; q <= TOTAL_QUESTIONS; q++) {
         const correctOpt = correct[q];
         let pool = 0, correctPool = 0;
         teamIds.forEach(id => {
