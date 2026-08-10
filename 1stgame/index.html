@@ -189,11 +189,19 @@
       </div>`;
   }
 
+  // Câu hỏi mặc định (hiện ngay cả khi giáo viên chưa nhập gì trong trang admin) — Câu 5-10 để trống, chờ cô điền
+  const DEFAULT_QUESTIONS = {
+    1: { text: "According to John, what is the main advantage of space exploration?", options: { A: "To supply resources for use on Earth.", B: "To find out more about the origins of the planet.", C: "To establish a colony for humans if Earth becomes uninhabitable." } },
+    2: { text: "According to the speakers, why can't robots be sent into space instead of humans?", options: { A: "They cannot operate for long enough.", B: "They are too expensive to build.", C: "They are too reliant on humans." } },
+    3: { text: "What are we told about the space technology currently used?", options: { A: "It can be unreliable.", B: "It is based on old technology.", C: "It is becoming cheaper to produce." } },
+    4: { text: "What is the biggest problem in sending robots to Mars?", options: { A: "the distance", B: "the atmosphere", C: "the extreme temperatures" } }
+  };
+
   // Lắng nghe nội dung câu hỏi do giáo viên nhập/sửa trong trang admin, hiện live cho học sinh
   db.ref('game/questions').on('value', snap => {
     const qs = snap.val() || {};
     for (let i = 1; i <= 10; i++) {
-      const q = qs[i];
+      const q = qs[i] || DEFAULT_QUESTIONS[i];
       const titleEl = document.getElementById(`qtitle-${i}`);
       if (titleEl) titleEl.textContent = (q && q.text) ? `Câu ${i}: ${q.text}` : `Câu ${i}`;
       const listEl = document.getElementById(`optlist-${i}`);
