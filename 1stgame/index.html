@@ -18,6 +18,8 @@
   .card { background: #1e1e1e; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #2a2a2a; }
   .card h3 { margin-top: 0; color: #4da6ff; font-size: 1.1rem; display:flex; justify-content:space-between; align-items:center;}
   .q-total { font-size: 0.8rem; color: #888; font-weight: normal; }
+  .options-list { font-size: 0.85rem; color: #ccc; line-height: 1.5; margin: 6px 0 14px; padding-left: 2px; }
+  .options-list div { margin-bottom: 2px; }
   .input-group { display: flex; gap: 10px; margin-top: 10px; }
   .input-box { flex: 1; text-align: center; }
   .input-box label { display: block; font-size: 0.85rem; margin-bottom: 5px; color: #aaa; }
@@ -168,7 +170,8 @@
   for (let i = 1; i <= 10; i++) {
     container.innerHTML += `
       <div class="card">
-        <h3>Câu ${i} <span class="q-total" id="qtotal-${i}"></span></h3>
+        <h3><span id="qtitle-${i}">Câu ${i}</span> <span class="q-total" id="qtotal-${i}"></span></h3>
+        <div class="options-list" id="optlist-${i}"></div>
         <div class="input-group">
           <div class="input-box" id="box-${i}-A">
             <label>A</label>
@@ -185,6 +188,24 @@
         </div>
       </div>`;
   }
+
+  // Lắng nghe nội dung câu hỏi do giáo viên nhập/sửa trong trang admin, hiện live cho học sinh
+  db.ref('game/questions').on('value', snap => {
+    const qs = snap.val() || {};
+    for (let i = 1; i <= 10; i++) {
+      const q = qs[i];
+      const titleEl = document.getElementById(`qtitle-${i}`);
+      if (titleEl) titleEl.textContent = (q && q.text) ? `Câu ${i}: ${q.text}` : `Câu ${i}`;
+      const listEl = document.getElementById(`optlist-${i}`);
+      if (listEl) {
+        if (q && q.options && (q.options.A || q.options.B || q.options.C)) {
+          listEl.innerHTML = ['A', 'B', 'C'].map(o => q.options[o] ? `<div><strong>${o}.</strong> ${q.options[o]}</div>` : '').join('');
+        } else {
+          listEl.innerHTML = '';
+        }
+      }
+    }
+  });
 
   async function joinTeam() {
     const name = document.getElementById('teamNameInput').value.trim();
