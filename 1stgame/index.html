@@ -41,6 +41,16 @@
   .leader-row:first-child { color:#ffd700; font-weight:bold; }
   .rank { color:#888; width:28px; display:inline-block;}
   #errorBanner { background:#4d1f1f; color:#ff8080; padding:12px; border-radius:10px; margin-bottom:15px; display:none; }
+  @media (max-width: 380px) {
+    body { padding: 10px; }
+    .sticky-header { flex-wrap: wrap; padding: 10px; gap: 6px; }
+    .coins-badge { font-size: 1rem; }
+    .input-group { gap: 6px; }
+    .input-box input { padding: 8px 4px; font-size: 0.9rem; }
+    .card { padding: 12px; }
+    .summary-table { font-size: 0.75rem; }
+    .summary-table th, .summary-table td { padding: 5px 3px; }
+  }
 </style>
 </head>
 <body>
@@ -95,8 +105,27 @@
   <div id="leaderboard"></div>
 </div>
 
-<script src="firebase-config.js"></script>
 <script>
+  // ====== CẤU HÌNH FIREBASE (đã gộp sẵn, không cần file riêng) ======
+  const firebaseConfig = {
+    apiKey: "AIzaSyApHRQfZumiQFj7-CiTU1VRuTMJHeXruTA",
+    authDomain: "stgameofcoyen.firebaseapp.com",
+    databaseURL: "https://stgameofcoyen-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "stgameofcoyen",
+    storageBucket: "stgameofcoyen.firebasestorage.app",
+    messagingSenderId: "36002056638",
+    appId: "1:36002056638:web:4322394e81b1d6bd0c91ef"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  function safeTeamKey(name) { return name.trim().replace(/[.#$\[\]\/]/g, "_"); }
+  function emptyBets() {
+    const bets = {};
+    for (let i = 1; i <= 10; i++) bets[i] = { A: 0, B: 0, C: 0 };
+    return bets;
+  }
+
   const totalBudget = 100;
   let currentTeamKey = null;
   let currentTeamName = null;
