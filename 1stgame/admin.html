@@ -77,8 +77,9 @@
 <div class="card">
   <div class="top">
     <button class="btn btn-lock" id="lockBtn" onclick="toggleLock()">🔒 Khoá đặt cược</button>
-    <button class="btn btn-reset" onclick="resetGame()">🔄 Ván mới (xoá hết)</button>
+    <button class="btn btn-reset" onclick="deleteAllTeams()">🗑️ Xoá toàn bộ đội</button>
   </div>
+  <p style="color:#888; font-size:0.85rem;">"Xoá toàn bộ đội" chỉ xoá danh sách đội & bài đặt cược, đề bài và đáp án đúng vẫn được giữ nguyên — dùng khi muốn cho lớp khác chơi lại cùng bộ câu hỏi này.</p>
   <p style="color:#888; font-size:0.85rem;">Khoá cược khi cả lớp đã nộp xong (hoặc hết giờ), sau đó chọn đáp án đúng cho từng câu bên dưới rồi bấm "Công bố kết quả".</p>
 </div>
 
@@ -96,6 +97,7 @@
   <h3>📝 Quản lý câu hỏi (hiện cho học sinh xem khi đặt cược)</h3>
   <p style="color:#888; font-size:0.85rem;">Nhập nội dung đề bài và đáp án A/B/C — học sinh sẽ thấy ngay khi mở trang. Có thể để trống câu nào đó nếu chỉ muốn đặt cược mà không hiện đề. Cô có thể sửa lại bất cứ lúc nào, kể cả giữa buổi học.</p>
   <button class="btn btn-unlock" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="fillSampleQuestions()">⚡ Điền mẫu Câu 1–4 (theo đề Listening Section 3)</button>
+  <button class="btn btn-reset" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="clearQuestionsOnly()">🧹 Xoá đề bài</button>
   <div id="questionEditRows"></div>
   <button class="btn-reveal" style="background:#28a745; color:#fff;" onclick="saveQuestions()">💾 LƯU CÂU HỎI</button>
 </div>
@@ -104,12 +106,13 @@
   <h3>Đáp án đúng (<span id="totalQLabel">10</span> câu)</h3>
   <div id="answerRows"></div>
   <button class="btn-reveal" id="revealBtn" onclick="computeAndReveal()" disabled>✅ CÔNG BỐ KẾT QUẢ & TÍNH ĐIỂM</button>
+  <button class="btn btn-reset" style="width:auto; padding:10px 16px; margin-top:8px;" onclick="clearAnswersOnly()">🧹 Xoá đáp án đúng</button>
 </div>
 
 <div class="card">
   <h3>Danh sách đội</h3>
   <table>
-    <thead><tr><th>Đội</th><th>Tổng cược</th><th>Nộp bài</th><th>Số xu cuối</th></tr></thead>
+    <thead><tr><th>Đội</th><th>Tổng cược</th><th>Nộp bài</th><th>Số xu cuối</th><th>Xoá</th></tr></thead>
     <tbody id="teamsBody"></tbody>
   </table>
 </div>
@@ -281,7 +284,7 @@
   });
 
   function setCorrect(q, opt) {
-    if (gameState.status === 'revealed') { alert('Kết quả đã công bố rồi, hãy bấm "Ván mới" nếu muốn chơi lại.'); return; }
+    if (gameState.status === 'revealed') { alert('Kết quả đã công bố rồi. Hãy bấm "Xoá đáp án" ở khu Đáp án đúng nếu cần chọn lại và công bố lại.'); return; }
     db.ref('game/correctAnswers/' + q).set(opt);
   }
 
@@ -345,8 +348,9 @@
         <td>${spent}</td>
         <td>${t.submitted ? '<span class="badge-yes">✔ Đã nộp</span>' : '<span class="badge-no">Đang làm...</span>'}</td>
         <td>${t.balance !== undefined && gameState.status === 'revealed' ? t.balance : '—'}</td>
+        <td><button class="btn btn-reset" style="width:auto; padding:6px 12px; font-size:0.8rem;" onclick="deleteOneTeam('${id}', '${(t.name||'').replace(/'/g,"\\'")}')">🗑️ Xoá</button></td>
       </tr>`;
-    }).join('') || '<tr><td colspan="4" style="color:#888;">Chưa có đội nào tham gia</td></tr>';
+    }).join('') || '<tr><td colspan="5" style="color:#888;">Chưa có đội nào tham gia</td></tr>';
   }
 
   function renderOptionTotals() {
@@ -387,32 +391,21 @@
       const payoutTotal = {}; teamIds.forEach(id => payoutTotal[id] = 0);
       const questionResults = {}; teamIds.forEach(id => questionResults[id] = {});
 
+      // Công thức: mỗi câu, nếu đội đặt cược vào đúng đáp án -> nhận lại đúng số xu đã đặt cho câu đó.
+      // Đặt sai (hoặc không đặt) -> không nhận gì cho câu đó (mất số xu đã đặt). Cộng dồn tất cả các câu = số xu cuối cùng.
       for (let q = 1; q <= TOTAL_QUESTIONS; q++) {
         const correctOpt = correct[q];
-        let pool = 0, correctPool = 0;
         teamIds.forEach(id => {
           const b = (teams[id].bets && teams[id].bets[q]) || { A: 0, B: 0, C: 0 };
-          pool += (b.A||0) + (b.B||0) + (b.C||0);
-          correctPool += b[correctOpt] || 0;
-        });
-        teamIds.forEach(id => {
-          const b = (teams[id].bets && teams[id].bets[q]) || { A: 0, B: 0, C: 0 };
-          let payout;
-          if (correctPool > 0) {
-            payout = pool * ((b[correctOpt] || 0) / correctPool);
-          } else {
-            // Không đội nào đúng -> hoàn lại tiền đã cược ở câu này cho tất cả (tránh mất xu oan)
-            payout = (b.A||0) + (b.B||0) + (b.C||0);
-          }
-          payout = Math.round(payout * 100) / 100;
+          const payout = b[correctOpt] || 0;
           payoutTotal[id] += payout;
-          questionResults[id][q] = { bet: b, correct: correctOpt, payout: payout, won: (b[correctOpt] || 0) > 0 };
+          questionResults[id][q] = { bet: b, correct: correctOpt, payout: payout, won: payout > 0 };
         });
       }
 
       const updates = {};
       teamIds.forEach(id => {
-        updates['teams/' + id + '/balance'] = Math.round(payoutTotal[id] * 100) / 100;
+        updates['teams/' + id + '/balance'] = payoutTotal[id];
         updates['teams/' + id + '/results'] = questionResults[id];
       });
       updates['game/status'] = 'revealed';
@@ -426,11 +419,28 @@
     }
   }
 
-  async function resetGame() {
-    if (!confirm('Xoá toàn bộ đội, đáp án và điểm để bắt đầu ván mới?')) return;
+  async function deleteOneTeam(teamId, teamName) {
+    if (!confirm(`Xoá đội "${teamName}"? Đề bài và đáp án đúng vẫn được giữ nguyên.`)) return;
+    await db.ref('teams/' + teamId).remove();
+  }
+
+  async function deleteAllTeams() {
+    if (!confirm('Xoá TẤT CẢ các đội đang tham gia? Đề bài và đáp án đúng sẽ được GIỮ NGUYÊN, có thể mở cược lại ngay cho lượt chơi mới.')) return;
     await db.ref('teams').remove();
-    await db.ref('game').set({ status: 'open', correctAnswers: {} });
+    await db.ref('game/status').set('open');
     document.getElementById('leaderboardCard').style.display = 'none';
+  }
+
+  async function clearAnswersOnly() {
+    if (!confirm('Xoá đáp án đúng đã chọn cho tất cả các câu? Đề bài và danh sách đội vẫn được giữ nguyên.')) return;
+    await db.ref('game/correctAnswers').remove();
+    if (gameState.status === 'revealed') await db.ref('game/status').set('locked');
+  }
+
+  async function clearQuestionsOnly() {
+    if (!confirm('Xoá toàn bộ nội dung đề bài đã nhập? Đáp án đúng và danh sách đội vẫn được giữ nguyên.')) return;
+    await db.ref('game/questions').remove();
+    buildQuestionEditRows();
   }
 </script>
 </body>
