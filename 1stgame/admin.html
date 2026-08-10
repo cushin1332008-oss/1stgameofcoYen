@@ -29,6 +29,8 @@
   .btn-reset { background: #ff4d4d; color: #fff; }
   .q-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; }
   .q-row .qlabel { width: 60px; font-weight: bold; }
+  .q-context { width: 100%; font-size: 0.8rem; color: #999; margin-top: 2px; line-height: 1.4; }
+  .q-context b { color: #ccc; }
   .opt-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; cursor: pointer; font-weight: bold; }
   .opt-btn.selected { background: #28a745; border-color: #28a745; }
   .opt-totals { font-size: 0.75rem; color: #888; margin-left: auto; }
@@ -217,8 +219,26 @@
         <button class="opt-btn" id="opt-${i}-B" onclick="setCorrect(${i},'B')">B</button>
         <button class="opt-btn" id="opt-${i}-C" onclick="setCorrect(${i},'C')">C</button>
         <span class="opt-totals" id="opttotals-${i}"></span>
+        <div class="q-context" id="qcontext-${i}"></div>
       </div>`;
   }
+
+  // Hiện lại nội dung đề + đáp án (đã nhập ở khu Quản lý câu hỏi) ngay tại khu chọn đáp án đúng, để cô không cần nhớ hay tìm đề giấy
+  db.ref('game/questions').on('value', snap => {
+    const qs = snap.val() || {};
+    for (let i = 1; i <= 10; i++) {
+      const q = qs[i];
+      const el = document.getElementById(`qcontext-${i}`);
+      if (!el) continue;
+      if (q && (q.text || (q.options && (q.options.A || q.options.B || q.options.C)))) {
+        const opts = q.options || {};
+        el.innerHTML = `${q.text ? q.text + '<br>' : ''}` +
+          ['A','B','C'].map(o => opts[o] ? `<b>${o}.</b> ${opts[o]}` : '').filter(Boolean).join(' &nbsp; ');
+      } else {
+        el.innerHTML = '<span style="color:#555;">(chưa nhập đề cho câu này ở khu "Quản lý câu hỏi")</span>';
+      }
+    }
+  });
 
   function setCorrect(q, opt) {
     if (gameState.status === 'revealed') { alert('Kết quả đã công bố rồi, hãy bấm "Ván mới" nếu muốn chơi lại.'); return; }
