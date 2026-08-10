@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin - Classroom Betting Game</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { background: #121212; color: #fff; margin: 0; padding: 15px; padding-bottom: 60px; }
+  h1 { font-size: 1.3rem; margin: 0 0 15px; color: #4da6ff; }
+  .sticky-header { position: sticky; top: 0; background: #1e1e1e; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 100; margin-bottom: 20px; border: 1px solid #333; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
+  .stats { display: flex; gap: 20px; }
+  .stat { text-align: center; }
+  .stat .num { font-size: 1.4rem; font-weight: bold; color: #ffd700; }
+  .stat .lbl { font-size: 0.75rem; color: #888; }
+  .status-pill { font-size: 0.8rem; padding: 5px 12px; border-radius: 20px; font-weight: bold; }
+  .status-open { background: #1f4d2b; color: #4caf50; }
+  .status-locked { background: #4d3a1f; color: #ffb84d; }
+  .status-revealed { background: #1f3a4d; color: #4da6ff; }
+  .card { background: #1e1e1e; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #2a2a2a; }
+  .card h3 { margin-top: 0; color: #4da6ff; }
+  .btn { padding: 12px 18px; border: none; border-radius: 10px; font-size: 0.95rem; font-weight: bold; cursor: pointer; }
+  .btn-lock { background: #ffb84d; color: #1e1e1e; }
+  .btn-unlock { background: #4caf50; color: #1e1e1e; }
+  .btn-reveal { background: #4da6ff; color: #1e1e1e; width: 100%; padding: 16px; margin-top: 10px; }
+  .btn-reveal:disabled { background: #555; color: #999; cursor: not-allowed; }
+  .btn-reset { background: #ff4d4d; color: #fff; }
+  .q-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #2a2a2a; flex-wrap: wrap; }
+  .q-row .qlabel { width: 60px; font-weight: bold; }
+  .opt-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; cursor: pointer; font-weight: bold; }
+  .opt-btn.selected { background: #28a745; border-color: #28a745; }
+  .opt-totals { font-size: 0.75rem; color: #888; margin-left: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { border: 1px solid #333; padding: 8px; text-align: center; }
+  th { background: #2b2b2b; }
+  tr.submitted { background: rgba(40,167,69,0.1); }
+  .badge-yes { color: #4caf50; }
+  .badge-no { color: #888; }
+  .top { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+  .leader-row { display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #2a2a2a; }
+  .leader-row:first-child { color:#ffd700; font-weight:bold; }
+</style>
+</head>
+<body>
+
+<div class="sticky-header">
+  <div>
+    <h1 style="margin:0;">🎓 Bảng Điều Khiển Giáo Viên</h1>
+    <span class="status-pill" id="statusPill">...</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num" id="statTeams">0</div><div class="lbl">Đội tham gia</div></div>
+    <div class="stat"><div class="num" id="statSubmitted">0</div><div class="lbl">Đã nộp bài</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="top">
+    <button class="btn btn-lock" id="lockBtn" onclick="toggleLock()">🔒 Khoá đặt cược</button>
+    <button class="btn btn-reset" onclick="resetGame()">🔄 Ván mới (xoá hết)</button>
+  </div>
+  <p style="color:#888; font-size:0.85rem;">Khoá cược khi cả lớp đã nộp xong (hoặc hết giờ), sau đó chọn đáp án đúng cho từng câu bên dưới rồi bấm "Công bố kết quả".</p>
+</div>
+
+<div class="card">
+  <h3>Đáp án đúng (10 câu)</h3>
+  <div id="answerRows"></div>
+  <button class="btn-reveal" id="revealBtn" onclick="computeAndReveal()" disabled>✅ CÔNG BỐ KẾT QUẢ & TÍNH ĐIỂM</button>
+</div>
+
+<div class="card">
+  <h3>Danh sách đội</h3>
+  <table>
+    <thead><tr><th>Đội</th><th>Tổng cược</th><th>Nộp bài</th><th>Số xu cuối</th></tr></thead>
+    <tbody id="teamsBody"></tbody>
+  </table>
+</div>
+
+<div class="card" id="leaderboardCard" style="display:none;">
+  <h3>🏆 Bảng Xếp Hạng</h3>
+  <div id="leaderboard"></div>
+</div>
+
+<script src="firebase-config.js"></script>
+<script>
+  let gameState = { status: 'open', correctAnswers: {} };
+  let teamsData = {};
+
+  // Build 10 hàng chọn đáp án
+  const answerRows = document.getElementById('answerRows');
+  for (let i = 1; i <= 10; i++) {
+    answerRows.innerHTML += `
+      <div class="q-row">
+        <span class="qlabel">Câu ${i}</span>
+        <button class="opt-btn" id="opt-${i}-A" onclick="setCorrect(${i},'A')">A</button>
+        <button class="opt-btn" id="opt-${i}-B" onclick="setCorrect(${i},'B')">B</button>
+        <button class="opt-btn" id="opt-${i}-C" onclick="setCorrect(${i},'C')">C</button>
+        <span class="opt-totals" id="opttotals-${i}"></span>
+      </div>`;
+  }
+
+  function setCorrect(q, opt) {
+    if (gameState.status === 'revealed') { alert('Kết quả đã công bố rồi, hãy bấm "Ván mới" nếu muốn chơi lại.'); return; }
+    db.ref('game/correctAnswers/' + q).set(opt);
+  }
+
+  db.ref('game').on('value', snap => {
+    gameState = snap.val() || { status: 'open', correctAnswers: {} };
+    if (!gameState.correctAnswers) gameState.correctAnswers = {};
+    updateStatusUI();
+  });
+
+  db.ref('teams').on('value', snap => {
+    teamsData = snap.val() || {};
+    renderTeams();
+    renderOptionTotals();
+    if (gameState.status === 'revealed') renderLeaderboard();
+  });
+
+  function updateStatusUI() {
+    const pill = document.getElementById('statusPill');
+    const lockBtn = document.getElementById('lockBtn');
+    if (gameState.status === 'locked') {
+      pill.textContent = '🔒 Đã khoá cược'; pill.className = 'status-pill status-locked';
+      lockBtn.textContent = '🔓 Mở lại đặt cược'; lockBtn.className = 'btn btn-unlock';
+    } else if (gameState.status === 'revealed') {
+      pill.textContent = '✅ Đã công bố kết quả'; pill.className = 'status-pill status-revealed';
+      lockBtn.textContent = '🔒 Khoá đặt cược'; lockBtn.className = 'btn btn-lock';
+      document.getElementById('leaderboardCard').style.display = 'block';
+    } else {
+      pill.textContent = '🟢 Đang mở cược'; pill.className = 'status-pill status-open';
+      lockBtn.textContent = '🔒 Khoá đặt cược'; lockBtn.className = 'btn btn-lock';
+    }
+
+    for (let i = 1; i <= 10; i++) {
+      ['A','B','C'].forEach(opt => {
+        document.getElementById(`opt-${i}-${opt}`).classList.toggle('selected', gameState.correctAnswers[i] === opt);
+      });
+    }
+
+    const allSet = Array.from({length:10}, (_,i)=>i+1).every(i => gameState.correctAnswers[i]);
+    document.getElementById('revealBtn').disabled = !allSet || gameState.status === 'revealed';
+  }
+
+  function toggleLock() {
+    const newStatus = gameState.status === 'locked' ? 'open' : 'locked';
+    db.ref('game/status').set(newStatus);
+  }
+
+  function renderTeams() {
+    const ids = Object.keys(teamsData);
+    document.getElementById('statTeams').textContent = ids.length;
+    document.getElementById('statSubmitted').textContent = ids.filter(id => teamsData[id].submitted).length;
+
+    const tbody = document.getElementById('teamsBody');
+    tbody.innerHTML = ids.map(id => {
+      const t = teamsData[id];
+      let spent = 0;
+      if (t.bets) for (let i = 1; i <= 10; i++) spent += (t.bets[i]?.A||0)+(t.bets[i]?.B||0)+(t.bets[i]?.C||0);
+      return `<tr class="${t.submitted ? 'submitted' : ''}">
+        <td>${t.name}</td>
+        <td>${spent}</td>
+        <td>${t.submitted ? '<span class="badge-yes">✔ Đã nộp</span>' : '<span class="badge-no">Đang làm...</span>'}</td>
+        <td>${t.balance !== undefined && gameState.status === 'revealed' ? t.balance : '—'}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="4" style="color:#888;">Chưa có đội nào tham gia</td></tr>';
+  }
+
+  function renderOptionTotals() {
+    for (let i = 1; i <= 10; i++) {
+      let totals = { A: 0, B: 0, C: 0 };
+      Object.values(teamsData).forEach(t => {
+        if (t.bets && t.bets[i]) { totals.A += t.bets[i].A||0; totals.B += t.bets[i].B||0; totals.C += t.bets[i].C||0; }
+      });
+      const el = document.getElementById(`opttotals-${i}`);
+      if (el) el.textContent = `A:${totals.A} B:${totals.B} C:${totals.C}`;
+    }
+  }
+
+  function renderLeaderboard() {
+    const teams = Object.values(teamsData).filter(t => t.submitted);
+    teams.sort((a, b) => (b.balance || 0) - (a.balance || 0));
+    const medals = ['🥇', '🥈', '🥉'];
+    document.getElementById('leaderboard').innerHTML = teams.map((t, i) =>
+      `<div class="leader-row"><span>${medals[i] || (i+1)}. ${t.name}</span><strong>${t.balance} xu</strong></div>`
+    ).join('') || '<p style="color:#888;">Chưa có đội nào nộp bài</p>';
+  }
+
+  async function computeAndReveal() {
+    const correct = gameState.correctAnswers || {};
+    for (let q = 1; q <= 10; q++) {
+      if (!correct[q]) { alert('Chưa chọn đáp án đúng cho câu ' + q); return; }
+    }
+    if (!confirm('Công bố kết quả và tính điểm cho cả lớp? Không thể hoàn tác (trừ khi bấm "Ván mới").')) return;
+
+    document.getElementById('revealBtn').disabled = true;
+    document.getElementById('revealBtn').textContent = 'Đang tính điểm...';
+
+    try {
+      const snap = await db.ref('teams').once('value');
+      const teams = snap.val() || {};
+      const teamIds = Object.keys(teams).filter(id => teams[id].submitted);
+
+      const payoutTotal = {}; teamIds.forEach(id => payoutTotal[id] = 0);
+      const questionResults = {}; teamIds.forEach(id => questionResults[id] = {});
+
+      for (let q = 1; q <= 10; q++) {
+        const correctOpt = correct[q];
+        let pool = 0, correctPool = 0;
+        teamIds.forEach(id => {
+          const b = (teams[id].bets && teams[id].bets[q]) || { A: 0, B: 0, C: 0 };
+          pool += (b.A||0) + (b.B||0) + (b.C||0);
+          correctPool += b[correctOpt] || 0;
+        });
+        teamIds.forEach(id => {
+          const b = (teams[id].bets && teams[id].bets[q]) || { A: 0, B: 0, C: 0 };
+          let payout;
+          if (correctPool > 0) {
+            payout = pool * ((b[correctOpt] || 0) / correctPool);
+          } else {
+            // Không đội nào đúng -> hoàn lại tiền đã cược ở câu này cho tất cả (tránh mất xu oan)
+            payout = (b.A||0) + (b.B||0) + (b.C||0);
+          }
+          payout = Math.round(payout * 100) / 100;
+          payoutTotal[id] += payout;
+          questionResults[id][q] = { bet: b, correct: correctOpt, payout: payout, won: (b[correctOpt] || 0) > 0 };
+        });
+      }
+
+      const updates = {};
+      teamIds.forEach(id => {
+        updates['teams/' + id + '/balance'] = Math.round(payoutTotal[id] * 100) / 100;
+        updates['teams/' + id + '/results'] = questionResults[id];
+      });
+      updates['game/status'] = 'revealed';
+      updates['game/revealedAt'] = Date.now();
+
+      await db.ref().update(updates);
+    } catch (e) {
+      alert('Lỗi khi tính điểm: ' + e.message);
+      document.getElementById('revealBtn').disabled = false;
+      document.getElementById('revealBtn').textContent = '✅ CÔNG BỐ KẾT QUẢ & TÍNH ĐIỂM';
+    }
+  }
+
+  async function resetGame() {
+    if (!confirm('Xoá toàn bộ đội, đáp án và điểm để bắt đầu ván mới?')) return;
+    await db.ref('teams').remove();
+    await db.ref('game').set({ status: 'open', correctAnswers: {} });
+    document.getElementById('leaderboardCard').style.display = 'none';
+  }
+</script>
+</body>
+</html>
