@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Classroom Betting Game</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #121212; color: #fff; margin: 0; padding: 15px; padding-bottom: 80px; }
+    .sticky-header { position: sticky; top: 0; background: #1e1e1e; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 100; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border: 1px solid #333; }
+    .coins-badge { font-size: 1.2rem; font-weight: bold; color: #ffd700; }
+    .card { background: #1e1e1e; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #2a2a2a; }
+    .card h3 { margin-top: 0; color: #4da6ff; font-size: 1.1rem; }
+    .input-group { display: flex; gap: 10px; margin-top: 10px; }
+    .input-box { flex: 1; text-align: center; }
+    .input-box label { display: block; font-size: 0.85rem; margin-bottom: 5px; color: #aaa; }
+    .input-box input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; text-align: center; font-size: 1rem; }
+    .text-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; font-size: 1rem; margin-top: 5px; }
+    button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 10px; font-size: 1.1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    button:disabled { background: #555; opacity: 0.6; }
+    .summary-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    .summary-table th, .summary-table td { border: 1px solid #444; padding: 8px; text-align: center; }
+    .summary-table th { background: #333; }
+  </style>
+</head>
+<body>
+
+  <div class="sticky-header">
+    <div><strong>QUỸ XU:</strong></div>
+    <div class="coins-badge" id="coinDisplay">100 / 100 xu</div>
+  </div>
+
+  <form id="betForm">
+    <div class="card">
+      <label><strong>Tên Đội / Nhóm:</strong></label>
+      <input type="text" id="teamName" class="text-input" placeholder="Nhập tên đội..." required>
+    </div>
+
+    <div id="questionsContainer"></div>
+
+    <button type="button" id="submitBtn" onclick="submitBets()">CHỐT ĐƠN ĐẶT CƯỢC</button>
+  </form>
+
+  <div id="resultScreen" style="display:none;" class="card">
+    <h2 style="color: #28a745; text-align: center;">KẾT QUẢ ĐẶT CƯỢC</h2>
+    <p><strong>Đội:</strong> <span id="resTeamName"></span></p>
+    <p><strong>Tổng xu đã dùng:</strong> <span id="resTotalCoins"></span> / 100 xu</p>
+    <table class="summary-table">
+      <thead>
+        <tr><th>Câu</th><th>A</th><th>B</th><th>C</th></tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
+    </table>
+    <p style="text-align: center; color: #aaa; margin-top: 15px;">Giơ màn hình này cho Giáo Viên kiểm tra!</p>
+  </div>
+
+  <script>
+    const totalBudget = 100;
+
+    // Khởi tạo 10 câu hỏi
+    const container = document.getElementById('questionsContainer');
+    for (let i = 1; i <= 10; i++) {
+      container.innerHTML += `
+        <div class="card">
+          <h3>Question ${i}</h3>
+          <div class="input-group">
+            <div class="input-box">
+              <label>A</label>
+              <input type="number" class="coin-input" data-q="${i}" data-opt="A" min="0" max="100" value="0" oninput="updateCoins()">
+            </div>
+            <div class="input-box">
+              <label>B</label>
+              <input type="number" class="coin-input" data-q="${i}" data-opt="B" min="0" max="100" value="0" oninput="updateCoins()">
+            </div>
+            <div class="input-box">
+              <label>C</label>
+              <input type="number" class="coin-input" data-q="${i}" data-opt="C" min="0" max="100" value="0" oninput="updateCoins()">
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateCoins() {
+      let spent = 0;
+      document.querySelectorAll('.coin-input').forEach(input => {
+        let val = parseInt(input.value) || 0;
+        if (val < 0) input.value = 0;
+        spent += val;
+      });
+
+      let remaining = totalBudget - spent;
+      const display = document.getElementById('coinDisplay');
+      const btn = document.getElementById('submitBtn');
+
+      if (remaining < 0) {
+        display.innerText = `VƯỢT QUÁ ${Math.abs(remaining)} XU!`;
+        display.style.color = '#ff4d4d';
+        btn.disabled = true;
+      } else {
+        display.innerText = `${remaining} / 100 xu còn lại`;
+        display.style.color = '#ffd700';
+        btn.disabled = false;
+      }
+    }
+
+    function submitBets() {
+      const teamName = document.getElementById('teamName').value.trim();
+      if (!teamName) {
+        alert('Vui lòng nhập tên đội!');
+        return;
+      }
+
+      let spent = 0;
+      let bets = {};
+      for (let i = 1; i <= 10; i++) bets[i] = { A: 0, B: 0, C: 0 };
+
+      document.querySelectorAll('.coin-input').forEach(input => {
+        let q = input.getAttribute('data-q');
+        let opt = input.getAttribute('data-opt');
+        let val = parseInt(input.value) || 0;
+        bets[q][opt] = val;
+        spent += val;
+      });
+
+      if (spent > 100) {
+        alert('Bạn đặt quá 100 xu! Hãy chỉnh lại.');
+        return;
+      }
+
+      // Khóa form và hiển thị bảng kết quả
+      document.getElementById('betForm').style.display = 'none';
+      document.getElementById('resTeamName').innerText = teamName;
+      document.getElementById('resTotalCoins').innerText = spent;
+
+      const tbody = document.getElementById('summaryBody');
+      tbody.innerHTML = '';
+      for (let i = 1; i <= 10; i++) {
+        tbody.innerHTML += `
+          <tr>
+            <td><strong>Q${i}</strong></td>
+            <td>${bets[i].A}</td>
+            <td>${bets[i].B}</td>
+            <td>${bets[i].C}</td>
+          </tr>
+        `;
+      }
+      document.getElementById('resultScreen').style.display = 'block';
+    }
+  </script>
+</body>
+</html>
