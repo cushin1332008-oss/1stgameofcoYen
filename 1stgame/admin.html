@@ -41,6 +41,16 @@
   .top { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
   .leader-row { display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #2a2a2a; }
   .leader-row:first-child { color:#ffd700; font-weight:bold; }
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+  @media (max-width: 480px) {
+    body { padding: 10px; }
+    h1 { font-size: 1.05rem; }
+    .stats { gap: 12px; }
+    .stat .num { font-size: 1.15rem; }
+    .q-row { gap: 6px; }
+    .opt-btn { padding: 7px 12px; font-size: 0.9rem; }
+    .opt-totals { width: 100%; margin-left: 0; order: 5; }
+  }
 </style>
 </head>
 <body>
@@ -54,6 +64,7 @@
     <div class="stat"><div class="num" id="statTeams">0</div><div class="lbl">Đội tham gia</div></div>
     <div class="stat"><div class="num" id="statSubmitted">0</div><div class="lbl">Đã nộp bài</div></div>
   </div>
+  <button class="btn" style="background:#333;color:#ccc;width:auto;padding:8px 14px;" onclick="sessionStorage.removeItem('adminAuthed');location.reload();">Đăng xuất</button>
 </div>
 
 <div class="card">
@@ -83,8 +94,40 @@
   <div id="leaderboard"></div>
 </div>
 
-<script src="firebase-config.js"></script>
 <script>
+  // ====== CẤU HÌNH FIREBASE (đã gộp sẵn, không cần file riêng) ======
+  const firebaseConfig = {
+    apiKey: "AIzaSyApHRQfZumiQFj7-CiTU1VRuTMJHeXruTA",
+    authDomain: "stgameofcoyen.firebaseapp.com",
+    databaseURL: "https://stgameofcoyen-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "stgameofcoyen",
+    storageBucket: "stgameofcoyen.firebasestorage.app",
+    messagingSenderId: "36002056638",
+    appId: "1:36002056638:web:4322394e81b1d6bd0c91ef"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ====== MẬT KHẨU TRANG ADMIN ======
+  // Đổi chuỗi bên dưới thành mật khẩu riêng của cô trước khi gửi link cho cô.
+  // Đây chỉ là lớp bảo vệ đơn giản (chặn học sinh tò mò vào nhầm link),
+  // không phải bảo mật cấp cao — vì dữ liệu Firebase vẫn mở theo rules đã cấu hình.
+  const ADMIN_PASSWORD = "cogiaovip2026";
+
+  (function checkAdminPassword() {
+    const alreadyOk = sessionStorage.getItem('adminAuthed') === 'yes';
+    if (alreadyOk) return;
+    let attempt = prompt("Nhập mật khẩu Admin:");
+    while (attempt !== ADMIN_PASSWORD) {
+      if (attempt === null) {
+        document.body.innerHTML = '<div style="color:#fff;text-align:center;margin-top:40vh;font-family:sans-serif;">Bạn không có quyền truy cập trang này.</div>';
+        throw new Error('Sai mật khẩu admin, dừng script.');
+      }
+      attempt = prompt("Sai mật khẩu, thử lại:");
+    }
+    sessionStorage.setItem('adminAuthed', 'yes');
+  })();
+
   let gameState = { status: 'open', correctAnswers: {} };
   let teamsData = {};
 
