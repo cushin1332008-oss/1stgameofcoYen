@@ -39,6 +39,11 @@
   .badge-yes { color: #4caf50; }
   .badge-no { color: #888; }
   .top { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+  .qedit-card { background: #232323; padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #333; }
+  .qedit-card textarea { width: 100%; min-height: 50px; padding: 10px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; font-size: 0.9rem; resize: vertical; margin-top: 4px; }
+  .qedit-opts { display: flex; gap: 8px; margin-top: 8px; }
+  .qedit-opts input { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; font-size: 0.85rem; }
+  .qedit-opts input::placeholder { color: #666; }
   .leader-row { display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #2a2a2a; }
   .leader-row:first-child { color:#ffd700; font-weight:bold; }
   table { display: block; overflow-x: auto; white-space: nowrap; }
@@ -73,6 +78,14 @@
     <button class="btn btn-reset" onclick="resetGame()">🔄 Ván mới (xoá hết)</button>
   </div>
   <p style="color:#888; font-size:0.85rem;">Khoá cược khi cả lớp đã nộp xong (hoặc hết giờ), sau đó chọn đáp án đúng cho từng câu bên dưới rồi bấm "Công bố kết quả".</p>
+</div>
+
+<div class="card">
+  <h3>📝 Quản lý câu hỏi (hiện cho học sinh xem khi đặt cược)</h3>
+  <p style="color:#888; font-size:0.85rem;">Nhập nội dung đề bài và đáp án A/B/C — học sinh sẽ thấy ngay khi mở trang. Có thể để trống câu nào đó nếu chỉ muốn đặt cược mà không hiện đề. Cô có thể sửa lại bất cứ lúc nào, kể cả giữa buổi học.</p>
+  <button class="btn btn-unlock" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="fillSampleQuestions()">⚡ Điền mẫu Câu 1–4 (theo đề Listening Section 3)</button>
+  <div id="questionEditRows"></div>
+  <button class="btn-reveal" style="background:#28a745; color:#fff;" onclick="saveQuestions()">💾 LƯU CÂU HỎI</button>
 </div>
 
 <div class="card">
@@ -130,6 +143,69 @@
 
   let gameState = { status: 'open', correctAnswers: {} };
   let teamsData = {};
+
+  // Build 10 ô soạn câu hỏi cho giáo viên
+  const qEditContainer = document.getElementById('questionEditRows');
+  for (let i = 1; i <= 10; i++) {
+    qEditContainer.innerHTML += `
+      <div class="qedit-card">
+        <strong>Câu ${i}</strong>
+        <textarea id="edit-qtext-${i}" placeholder="Nội dung câu hỏi ${i}..."></textarea>
+        <div class="qedit-opts">
+          <input id="edit-qopt-${i}-A" placeholder="Đáp án A">
+          <input id="edit-qopt-${i}-B" placeholder="Đáp án B">
+          <input id="edit-qopt-${i}-C" placeholder="Đáp án C">
+        </div>
+      </div>`;
+  }
+
+  // Nạp câu hỏi đã lưu trước đó (nếu có) khi mở trang admin
+  db.ref('game/questions').once('value').then(snap => {
+    const qs = snap.val() || {};
+    for (let i = 1; i <= 10; i++) {
+      const q = qs[i];
+      if (!q) continue;
+      document.getElementById(`edit-qtext-${i}`).value = q.text || '';
+      document.getElementById(`edit-qopt-${i}-A`).value = (q.options && q.options.A) || '';
+      document.getElementById(`edit-qopt-${i}-B`).value = (q.options && q.options.B) || '';
+      document.getElementById(`edit-qopt-${i}-C`).value = (q.options && q.options.C) || '';
+    }
+  });
+
+  async function saveQuestions() {
+    const questions = {};
+    for (let i = 1; i <= 10; i++) {
+      const text = document.getElementById(`edit-qtext-${i}`).value.trim();
+      const A = document.getElementById(`edit-qopt-${i}-A`).value.trim();
+      const B = document.getElementById(`edit-qopt-${i}-B`).value.trim();
+      const C = document.getElementById(`edit-qopt-${i}-C`).value.trim();
+      if (text || A || B || C) {
+        questions[i] = { text: text, options: { A: A, B: B, C: C } };
+      }
+    }
+    try {
+      await db.ref('game/questions').set(questions);
+      alert('Đã lưu câu hỏi! Trang học sinh sẽ tự cập nhật ngay.');
+    } catch (e) {
+      alert('Lỗi khi lưu: ' + e.message);
+    }
+  }
+
+  function fillSampleQuestions() {
+    const sample = {
+      1: { text: "According to John, what is the main advantage of space exploration?", A: "To supply resources for use on Earth.", B: "To find out more about the origins of the planet.", C: "To establish a colony for humans if Earth becomes uninhabitable." },
+      2: { text: "According to the speakers, why can't robots be sent into space instead of humans?", A: "They cannot operate for long enough.", B: "They are too expensive to build.", C: "They are too reliant on humans." },
+      3: { text: "What are we told about the space technology currently used?", A: "It can be unreliable.", B: "It is based on old technology.", C: "It is becoming cheaper to produce." },
+      4: { text: "What is the biggest problem in sending robots to Mars?", A: "the distance", B: "the atmosphere", C: "the extreme temperatures" }
+    };
+    Object.keys(sample).forEach(i => {
+      document.getElementById(`edit-qtext-${i}`).value = sample[i].text;
+      document.getElementById(`edit-qopt-${i}-A`).value = sample[i].A;
+      document.getElementById(`edit-qopt-${i}-B`).value = sample[i].B;
+      document.getElementById(`edit-qopt-${i}-C`).value = sample[i].C;
+    });
+    alert('Đã điền mẫu Câu 1–4. Cô kéo xuống điền tiếp Câu 5–10 theo đề của mình, rồi bấm "LƯU CÂU HỎI".');
+  }
 
   // Build 10 hàng chọn đáp án
   const answerRows = document.getElementById('answerRows');
