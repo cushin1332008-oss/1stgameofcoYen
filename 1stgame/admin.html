@@ -137,8 +137,14 @@
     <input type="file" accept=".txt,image/*" onchange="handleImportFile(event)" style="display:none;">
   </label>
   <button class="btn btn-reset" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="clearQuestionsOnly()">🧹 Xoá đề bài</button>
+  <div style="margin-bottom:10px; font-size:0.85rem; color:#ccc;">
+    Ngôn ngữ đề (chọn đúng sẽ nhận diện chính xác hơn nhiều):
+    <label style="margin-left:8px;"><input type="radio" name="ocrLang" value="eng" checked> Tiếng Anh</label>
+    <label style="margin-left:8px;"><input type="radio" name="ocrLang" value="vie"> Tiếng Việt</label>
+    <label style="margin-left:8px;"><input type="radio" name="ocrLang" value="eng+vie"> Cả hai</label>
+  </div>
   <div id="importStatus" style="display:none; color:#4da6ff; font-size:0.85rem; margin-bottom:10px;"></div>
-  <p style="color:#777; font-size:0.78rem; margin:-4px 0 10px;">Hỗ trợ file <strong>.txt</strong> (câu hỏi đánh số "1. 2. 3...", đáp án đánh chữ "A. B. C...") hoặc <strong>ảnh chụp đề</strong> (hệ thống tự nhận diện chữ trong ảnh — cần ảnh rõ nét, chụp thẳng, không mờ/nghiêng). Sau khi đọc xong, cô sẽ thấy lại toàn bộ văn bản để <strong>kiểm tra/sửa trước</strong> khi hệ thống tách thành từng câu.</p>
+  <p style="color:#777; font-size:0.78rem; margin:-4px 0 10px;">Hỗ trợ file <strong>.txt</strong> (câu hỏi đánh số "1. 2. 3...", đáp án đánh chữ "A. B. C...") hoặc <strong>ảnh chụp đề</strong> (hệ thống tự nhận diện chữ trong ảnh — cần ảnh rõ nét, chụp thẳng, không mờ/nghiêng). Sau khi đọc xong, cô sẽ thấy lại toàn bộ văn bản để <strong>kiểm tra/sửa trước</strong> khi hệ thống tách thành từng câu — OCR đôi khi làm mất chữ cái A/B/C ở đầu dòng đáp án hoặc đọc nhầm chữ, cô nhớ rà lại: <strong>mỗi đáp án phải có đúng 1 chữ cái riêng ở đầu dòng</strong>, thiếu chỗ nào thì gõ thêm vào trước khi bấm Tách câu hỏi.</p>
 
   <div id="importPreviewCard" class="import-preview" style="display:none;">
     <strong>Xem trước &amp; chỉnh sửa văn bản trước khi tách câu hỏi:</strong>
@@ -414,6 +420,16 @@
 
   // ====== IMPORT ĐỀ TỪ FILE .TXT HOẶC ẢNH (tự tách câu hỏi + đáp án) ======
 
+  // Sửa các lỗi nhận diện OCR hay gặp ở đầu dòng đáp án (VD: chữ "C" hay bị đọc nhầm thành ký hiệu bản quyền ©)
+  function normalizeOcrText(text) {
+    return text.split(/\r?\n/).map(line => {
+      let l = line.trim();
+      l = l.replace(/^[©@]\s*/, 'C ');       // © hoặc @ đầu dòng thường là chữ C bị đọc nhầm
+      l = l.replace(/^\(([A-Za-z])\)\s*/, '$1 '); // (A) -> A
+      return l;
+    }).join('\n');
+  }
+
   function parseImportedText(text) {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     const questions = {};
@@ -508,6 +524,30 @@
     });
   }
 
+  // Phóng to ảnh trước khi đưa vào OCR — chữ nhỏ trong ảnh chụp đề thường được nhận diện chính xác hơn nhiều khi ảnh có độ phân giải cao hơn
+  function upscaleImage(file, scale) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => resolve(blob), 'image/png');
+      };
+      img.onerror = () => reject(new Error('Không đọc được ảnh.'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function getSelectedOcrLang() {
+    const checked = document.querySelector('input[name="ocrLang"]:checked');
+    return checked ? checked.value : 'eng';
+  }
+
   // Đọc file/ảnh, hiện văn bản nhận diện được ra khu xem trước để cô kiểm tra/sửa TRƯỚC khi tách thành câu hỏi
   async function handleImportFile(event) {
     const file = event.target.files[0];
@@ -522,12 +562,15 @@
       imgEl.style.display = 'block';
       textEl.value = '';
       previewCard.style.display = 'block';
-      statusEl.textContent = '🔎 Đang nhận diện chữ trong ảnh, có thể mất 15-40 giây tuỳ ảnh...';
+      statusEl.style.color = '#4da6ff';
+      statusEl.textContent = '🔎 Đang xử lý ảnh và nhận diện chữ, có thể mất 15-40 giây tuỳ ảnh...';
       statusEl.style.display = 'block';
       try {
         await loadTesseract();
-        const result = await Tesseract.recognize(file, 'eng+vie');
-        textEl.value = result.data.text;
+        const lang = getSelectedOcrLang();
+        const upscaled = await upscaleImage(file, 2).catch(() => file); // nếu lỗi phóng to thì dùng ảnh gốc
+        const result = await Tesseract.recognize(upscaled, lang);
+        textEl.value = normalizeOcrText(result.data.text);
         statusEl.style.display = 'none';
         if (!result.data.text.trim()) {
           statusEl.textContent = '⚠️ Không nhận diện được chữ nào rõ ràng — cô có thể tự gõ lại văn bản vào ô bên dưới rồi bấm "Tách câu hỏi".';
