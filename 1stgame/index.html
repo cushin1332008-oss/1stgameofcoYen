@@ -65,6 +65,8 @@
   <div class="coins-badge" id="coinDisplay">100 / 100 xu</div>
 </div>
 
+<div id="countdownBanner" style="display:none; background:#1e1e1e; border:1px solid #ffb84d; color:#ffb84d; padding:12px; border-radius:10px; margin-bottom:15px; text-align:center; font-weight:bold; font-size:1.1rem;"></div>
+
 <div id="errorBanner"></div>
 
 <!-- BƯỚC 1: NHẬP TÊN ĐỘI -->
@@ -86,7 +88,7 @@
   <div class="big-emoji">⏳</div>
   <h2 style="color:#28a745;">Đã nộp bài thành công!</h2>
   <p><strong>Đội:</strong> <span id="waitTeamName"></span></p>
-  <p><strong>Tổng xu đã đặt:</strong> <span id="waitTotalCoins"></span> / 100 xu</p>
+  <p><strong>Tổng xu đã đặt:</strong> <span id="waitTotalCoins"></span> / <span id="waitTotalBudget">100</span> xu</p>
   <p class="muted">Đang chờ Giáo Viên công bố đáp án đúng...</p>
   <div class="spinner"></div>
   <p class="muted" id="submittedCount"></p>
@@ -123,13 +125,19 @@
 
   function safeTeamKey(name) { return name.trim().replace(/[.#$\[\]\/]/g, "_"); }
   let TOTAL_QUESTIONS = 10; // giá trị mặc định, sẽ được ghi đè theo số câu cô cấu hình ở trang admin
+  let NUM_OPTIONS = 3; // giá trị mặc định, sẽ được ghi đè theo số đáp án/câu cô cấu hình ở trang admin
+  function OPT_LETTERS() { return Array.from({length: NUM_OPTIONS}, (_,i)=>String.fromCharCode(65+i)); }
   function emptyBets() {
     const bets = {};
-    for (let i = 1; i <= TOTAL_QUESTIONS; i++) bets[i] = { A: 0, B: 0, C: 0 };
+    const letters = OPT_LETTERS();
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+      bets[i] = {};
+      letters.forEach(o => bets[i][o] = 0);
+    }
     return bets;
   }
 
-  const totalBudget = 100;
+  let TOTAL_BUDGET = 100; // giá trị mặc định, sẽ được ghi đè theo số xu cô cấu hình ở trang admin
   let currentTeamKey = null;
   let currentTeamName = null;
   let currentBets = {};
@@ -143,6 +151,27 @@
     if (gameState.status === 'revealed' && hasSubmitted) {
       showResults();
     }
+  });
+
+  // Đếm ngược thời gian đặt cược (do giáo viên đặt bên trang admin)
+  let studentCountdownInterval = null;
+  db.ref('game/countdownEndTime').on('value', snap => {
+    const endTime = snap.val();
+    if (studentCountdownInterval) clearInterval(studentCountdownInterval);
+    const banner = document.getElementById('countdownBanner');
+    if (!endTime) { banner.style.display = 'none'; return; }
+    banner.style.display = 'block';
+    studentCountdownInterval = setInterval(() => {
+      const remain = endTime - Date.now();
+      if (remain <= 0) {
+        banner.textContent = '⏰ Đã hết giờ đặt cược!';
+        clearInterval(studentCountdownInterval);
+        if (gameState.status === 'open') db.ref('game/status').set('locked');
+        return;
+      }
+      const m = Math.floor(remain / 60000), s = Math.floor((remain % 60000) / 1000);
+      banner.textContent = `⏳ Còn ${m}:${s.toString().padStart(2,'0')} để đặt cược`;
+    }, 1000);
   });
 
   function updateStatusPill() {
@@ -177,24 +206,18 @@
   function buildQuestionCards() {
     const container = document.getElementById('questionsContainer');
     container.innerHTML = '';
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       container.innerHTML += `
         <div class="card">
           <h3><span id="qtitle-${i}">Câu ${i}</span> <span class="q-total" id="qtotal-${i}"></span></h3>
           <div class="options-list" id="optlist-${i}"></div>
           <div class="input-group">
-            <div class="input-box" id="box-${i}-A">
-              <label>A</label>
-              <input type="number" class="coin-input" data-q="${i}" data-opt="A" min="0" max="100" value="0" oninput="updateCoins()">
-            </div>
-            <div class="input-box" id="box-${i}-B">
-              <label>B</label>
-              <input type="number" class="coin-input" data-q="${i}" data-opt="B" min="0" max="100" value="0" oninput="updateCoins()">
-            </div>
-            <div class="input-box" id="box-${i}-C">
-              <label>C</label>
-              <input type="number" class="coin-input" data-q="${i}" data-opt="C" min="0" max="100" value="0" oninput="updateCoins()">
-            </div>
+            ${letters.map(o => `
+            <div class="input-box" id="box-${i}-${o}">
+              <label>${o}</label>
+              <input type="number" class="coin-input" data-q="${i}" data-opt="${o}" min="0" max="${TOTAL_BUDGET}" value="0" oninput="updateCoins()">
+            </div>`).join('')}
           </div>
         </div>`;
     }
@@ -203,14 +226,15 @@
   let latestQuestionsData = {};
 
   function renderQuestionText() {
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       const q = latestQuestionsData[i] || DEFAULT_QUESTIONS[i];
       const titleEl = document.getElementById(`qtitle-${i}`);
       if (titleEl) titleEl.textContent = (q && q.text) ? `Câu ${i}: ${q.text}` : `Câu ${i}`;
       const listEl = document.getElementById(`optlist-${i}`);
       if (listEl) {
-        if (q && q.options && (q.options.A || q.options.B || q.options.C)) {
-          listEl.innerHTML = ['A', 'B', 'C'].map(o => q.options[o] ? `<div><strong>${o}.</strong> ${q.options[o]}</div>` : '').join('');
+        if (q && q.options && letters.some(o => q.options[o])) {
+          listEl.innerHTML = letters.map(o => q.options[o] ? `<div><strong>${o}.</strong> ${q.options[o]}</div>` : '').join('');
         } else {
           listEl.innerHTML = '';
         }
@@ -222,7 +246,7 @@
     const b = {};
     document.querySelectorAll('.coin-input').forEach(input => {
       const q = input.getAttribute('data-q'), opt = input.getAttribute('data-opt');
-      if (!b[q]) b[q] = { A: 0, B: 0, C: 0 };
+      if (!b[q]) b[q] = {};
       b[q][opt] = parseInt(input.value) || 0;
     });
     return b;
@@ -231,20 +255,18 @@
   let readyResolved = false;
   let resolveReady;
   let readyPromise = new Promise(res => { resolveReady = res; });
+  let configLoadedFlags = { total: false, options: false, budget: false };
 
-  // Lắng nghe số lượng câu hỏi LIÊN TỤC — nếu cô thêm/bớt câu giữa lúc học sinh đang làm, form tự cập nhật ngay, không mất xu đã nhập cho các câu cũ
-  db.ref('game/totalQuestions').on('value', snap => {
-    const n = snap.val() || 10;
+  function rebuildIfNeeded() {
     const stillFillingForm = readyResolved && !hasSubmitted && document.getElementById('betForm').style.display !== 'none';
     const preserved = stillFillingForm ? captureCurrentBetsFromInputs() : null;
 
-    TOTAL_QUESTIONS = n;
     if (!readyResolved || stillFillingForm) {
       buildQuestionCards();
       renderQuestionText();
       if (preserved) {
         Object.keys(preserved).forEach(q => {
-          ['A', 'B', 'C'].forEach(opt => {
+          Object.keys(preserved[q]).forEach(opt => {
             const el = document.querySelector(`.coin-input[data-q="${q}"][data-opt="${opt}"]`);
             if (el && preserved[q][opt]) el.value = preserved[q][opt];
           });
@@ -252,7 +274,37 @@
         updateCoins();
       }
     }
-    if (!readyResolved) { readyResolved = true; resolveReady(); }
+  }
+
+  function checkReady() {
+    if (readyResolved) return;
+    if (configLoadedFlags.total && configLoadedFlags.options && configLoadedFlags.budget) {
+      readyResolved = true;
+      rebuildIfNeeded();
+      resolveReady();
+    }
+  }
+
+  // Lắng nghe số lượng câu hỏi, số đáp án/câu & tổng số xu LIÊN TỤC — nếu cô sửa giữa lúc học sinh đang làm, form tự cập nhật ngay, không mất xu đã nhập cho các câu/đáp án còn giữ nguyên
+  db.ref('game/totalQuestions').on('value', snap => {
+    TOTAL_QUESTIONS = snap.val() || 10;
+    configLoadedFlags.total = true;
+    if (readyResolved) rebuildIfNeeded(); else checkReady();
+  });
+
+  db.ref('game/numOptions').on('value', snap => {
+    NUM_OPTIONS = snap.val() || 3;
+    configLoadedFlags.options = true;
+    if (readyResolved) rebuildIfNeeded(); else checkReady();
+  });
+
+  db.ref('game/totalBudget').on('value', snap => {
+    TOTAL_BUDGET = snap.val() || 100;
+    configLoadedFlags.budget = true;
+    document.querySelectorAll('.coin-input').forEach(input => input.max = TOTAL_BUDGET);
+    if (readyResolved) { updateCoins(); }
+    else { document.getElementById('coinDisplay').textContent = `${TOTAL_BUDGET} / ${TOTAL_BUDGET} xu`; }
+    checkReady();
   });
 
   db.ref('game/questions').on('value', snap => {
@@ -272,7 +324,7 @@
     try {
       const result = await ref.transaction(current => {
         if (current === null) {
-          return { name: name, bets: emptyBets(), submitted: false, balance: totalBudget, createdAt: Date.now() };
+          return { name: name, bets: emptyBets(), submitted: false, balance: TOTAL_BUDGET, createdAt: Date.now() };
         }
         return current; // đội đã tồn tại -> không ghi đè, chỉ cho tham gia lại (rejoin)
       });
@@ -327,7 +379,7 @@
       spent += qspent;
     }
 
-    let remaining = totalBudget - spent;
+    let remaining = TOTAL_BUDGET - spent;
     const display = document.getElementById('coinDisplay');
     const btn = document.getElementById('submitBtn');
 
@@ -336,7 +388,7 @@
       display.style.color = '#ff4d4d';
       btn.disabled = true;
     } else {
-      display.innerText = `${remaining} / 100 xu còn lại`;
+      display.innerText = `${remaining} / ${TOTAL_BUDGET} xu còn lại`;
       display.style.color = '#ffd700';
       btn.disabled = gameState.status === 'locked';
     }
@@ -355,7 +407,7 @@
       spent += val;
     });
 
-    if (spent > 100) { showError('Bạn đặt quá 100 xu! Hãy chỉnh lại.'); return; }
+    if (spent > TOTAL_BUDGET) { showError(`Bạn đặt quá ${TOTAL_BUDGET} xu! Hãy chỉnh lại.`); return; }
     if (spent === 0) { if (!confirm('Bạn chưa đặt xu nào cả, chắc chắn nộp bài trống?')) return; }
 
     document.getElementById('submitBtn').disabled = true;
@@ -380,9 +432,13 @@
 
   function showWaitingScreen() {
     let spent = 0;
-    for (let i = 1; i <= TOTAL_QUESTIONS; i++) spent += (currentBets[i].A + currentBets[i].B + currentBets[i].C);
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+      const b = currentBets[i] || {};
+      spent += Object.values(b).reduce((s, v) => s + (v || 0), 0);
+    }
     document.getElementById('waitTeamName').textContent = currentTeamName;
     document.getElementById('waitTotalCoins').textContent = spent;
+    document.getElementById('waitTotalBudget').textContent = TOTAL_BUDGET;
     document.getElementById('waitingScreen').style.display = 'block';
 
     // Đếm số đội đã nộp bài, để tạo cảm giác hồi hộp chờ cả lớp
