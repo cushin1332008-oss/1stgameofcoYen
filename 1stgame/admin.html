@@ -418,17 +418,37 @@
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     const questions = {};
     let currentQ = null, currentOptLetter = null;
-    const qRegex = /^(\d{1,2})[\.\):]\s*(.*)$/;
-    const optRegex = /^([A-Za-z])[\.\):]\s*(.*)$/;
+    let sharedOptions = null; // dùng cho dạng câu hỏi dùng chung 1 bộ đáp án (VD: "Who expresses...? A John B Susan C Both")
+
+    // Dấu chấm/hai chấm/ngoặc sau số và chữ cái là TUỲ CHỌN — nhiều đề (nhất là ảnh chụp OCR) không có dấu này,
+    // chỉ cách nhau bằng khoảng trắng, VD: "1 According to John..." hoặc "A To supply resources..."
+    const qRegex = /^(\d{1,2})[\.\):]?\s+(.*)$/;
+    const optRegex = /^([A-Za-z])[\.\):]?\s+(.*)$/;
+    const sectionHeaderRegex = /^Questions?\s+\d+/i;
 
     lines.forEach(line => {
+      // Dòng kiểu "Questions 5-10" là tiêu đề mục mới -> đóng câu đang mở, xoá bộ đáp án dùng chung cũ
+      if (sectionHeaderRegex.test(line)) {
+        currentQ = null;
+        currentOptLetter = null;
+        sharedOptions = null;
+        return;
+      }
+
       const qm = line.match(qRegex);
       const om = line.match(optRegex);
+
       if (qm) {
         currentQ = parseInt(qm[1]);
         currentOptLetter = null;
-        if (!questions[currentQ]) questions[currentQ] = { text: '', options: {} };
+        if (!questions[currentQ]) questions[currentQ] = { text: '', options: sharedOptions ? { ...sharedOptions } : {} };
         if (qm[2]) questions[currentQ].text = (questions[currentQ].text + ' ' + qm[2]).trim();
+      } else if (om && currentQ === null) {
+        // Gặp đáp án A/B/C nhưng chưa có câu hỏi nào đang mở -> đây là bộ đáp án DÙNG CHUNG cho nhiều câu phía sau
+        // (VD: "Who expresses the following opinions? A John B Susan C Both John and Susan")
+        if (!sharedOptions) sharedOptions = {};
+        currentOptLetter = om[1].toUpperCase();
+        sharedOptions[currentOptLetter] = om[2].trim();
       } else if (om && currentQ) {
         currentOptLetter = om[1].toUpperCase();
         questions[currentQ].options[currentOptLetter] = om[2].trim();
@@ -438,8 +458,13 @@
         } else {
           questions[currentQ].text = (questions[currentQ].text + ' ' + line).trim();
         }
+      } else if (currentOptLetter && sharedOptions) {
+        sharedOptions[currentOptLetter] = (sharedOptions[currentOptLetter] + ' ' + line).trim();
       }
     });
+
+    // Bỏ dấu chấm chấm chấm (chỗ để học sinh viết tay trên đề giấy) ở cuối mỗi câu
+    Object.values(questions).forEach(q => { q.text = q.text.replace(/\.{2,}\s*$/, '').trim(); });
 
     const qNums = Object.keys(questions).map(Number);
     if (qNums.length === 0) return null;
