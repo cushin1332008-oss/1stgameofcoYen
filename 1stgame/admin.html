@@ -49,6 +49,19 @@
   .leader-row { display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #2a2a2a; }
   .leader-row:first-child { color:#ffd700; font-weight:bold; }
   table { display: block; overflow-x: auto; white-space: nowrap; }
+  .import-preview { background: #232323; border: 1px solid #444; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .import-preview img { max-width: 100%; border-radius: 8px; margin: 10px 0; display: block; }
+  .import-preview textarea { width: 100%; min-height: 180px; padding: 10px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; font-size: 0.85rem; margin-top: 8px; }
+  .stat-q { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #2a2a2a; }
+  .stat-q:last-child { border-bottom: none; margin-bottom: 0; }
+  .stat-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .stat-label { width: 34px; font-weight: bold; font-size: 0.85rem; flex-shrink: 0; }
+  .stat-bar-bg { flex: 1; background: #2b2b2b; border-radius: 6px; height: 18px; overflow: hidden; }
+  .stat-bar-fill { height: 100%; background: #4da6ff; transition: width 0.3s; }
+  .stat-bar-fill.correct { background: #28a745; }
+  .stat-pct { width: 75px; font-size: 0.78rem; color: #aaa; text-align: right; flex-shrink: 0; }
+  .stat-noanswer { font-size: 0.75rem; color: #888; margin-top: 4px; }
+  #countdownDisplay { margin-top: 10px; font-size: 1.3rem; font-weight: bold; color: #4da6ff; }
   @media (max-width: 480px) {
     body { padding: 10px; }
     h1 { font-size: 1.05rem; }
@@ -62,6 +75,8 @@
 </head>
 <body>
 
+<div id="adminApp" style="display:none;">
+
 <div class="sticky-header">
   <div>
     <h1 style="margin:0;">🎓 Bảng Điều Khiển Giáo Viên</h1>
@@ -71,10 +86,11 @@
     <div class="stat"><div class="num" id="statTeams">0</div><div class="lbl">Đội tham gia</div></div>
     <div class="stat"><div class="num" id="statSubmitted">0</div><div class="lbl">Đã nộp bài</div></div>
   </div>
-  <button class="btn" style="background:#333;color:#ccc;width:auto;padding:8px 14px;" onclick="sessionStorage.removeItem('adminAuthed');location.reload();">Đăng xuất</button>
+  <button class="btn" style="background:#333;color:#ccc;width:auto;padding:8px 14px;" onclick="sessionStorage.removeItem('adminAuthed'); location.reload();">Đăng xuất</button>
 </div>
 
 <div class="card">
+
   <div class="top">
     <button class="btn btn-lock" id="lockBtn" onclick="toggleLock()">🔒 Khoá đặt cược</button>
     <button class="btn btn-reset" onclick="deleteAllTeams()">🗑️ Xoá toàn bộ đội</button>
@@ -84,20 +100,56 @@
 </div>
 
 <div class="card">
-  <h3>⚙️ Cấu hình ván chơi</h3>
+  <h3>⏱️ Đếm ngược đặt cược</h3>
   <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <label>Số phút:</label>
+    <input type="number" id="countdownMinutes" min="1" max="60" value="3" style="width:70px; padding:8px; border-radius:8px; border:1px solid #444; background:#2b2b2b; color:#fff; text-align:center;">
+    <button class="btn btn-unlock" style="width:auto; padding:8px 16px;" onclick="startCountdown()">▶️ Bắt đầu đếm ngược</button>
+    <button class="btn btn-reset" style="width:auto; padding:8px 16px;" onclick="cancelCountdown()">⏹️ Huỷ đếm ngược</button>
+  </div>
+  <div id="countdownDisplay"></div>
+  <p style="color:#888; font-size:0.8rem; margin-top:8px;">Hết giờ sẽ tự động khoá cược cho cả admin và trang học sinh (không cần bấm tay), miễn là ít nhất 1 trình duyệt đang mở trang.</p>
+</div>
+
+<div class="card">
+  <h3>⚙️ Cấu hình ván chơi</h3>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
     <label>Số lượng câu hỏi:</label>
     <input type="number" id="totalQInput" min="1" max="30" value="10" style="width:80px; padding:8px; border-radius:8px; border:1px solid #444; background:#2b2b2b; color:#fff; text-align:center;">
-    <button class="btn btn-unlock" style="width:auto; padding:8px 16px;" onclick="saveTotalQuestions()">Lưu số câu hỏi</button>
   </div>
-  <p style="color:#888; font-size:0.8rem; margin-top:8px;">Bài chỉ có 4 câu thì đổi thành 4, có 6 câu thì đổi thành 6... Đặt số này <strong>trước khi</strong> học sinh vào chơi (đổi giữa chừng khi đã có đội tham gia có thể làm lệch dữ liệu).</p>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+    <label>Số đáp án mỗi câu (A, B, C...):</label>
+    <input type="number" id="numOptInput" min="2" max="6" value="3" style="width:80px; padding:8px; border-radius:8px; border:1px solid #444; background:#2b2b2b; color:#fff; text-align:center;">
+  </div>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <label>Tổng số xu mỗi đội:</label>
+    <input type="number" id="totalBudgetInput" min="1" max="100000" value="100" style="width:100px; padding:8px; border-radius:8px; border:1px solid #444; background:#2b2b2b; color:#fff; text-align:center;">
+  </div>
+  <button class="btn btn-unlock" style="width:auto; padding:8px 16px; margin-top:10px;" onclick="saveConfig()">Lưu cấu hình</button>
+  <p style="color:#888; font-size:0.8rem; margin-top:8px;">Bài chỉ có 4 câu thì đổi thành 4, mỗi câu có 4 đáp án (A/B/C/D) thì đổi số đáp án thành 4, muốn phát 200 xu thay vì 100 thì đổi số xu... Đặt cấu hình này <strong>trước khi</strong> học sinh vào chơi (đổi giữa chừng khi đã có đội tham gia có thể làm lệch dữ liệu).</p>
 </div>
 
 <div class="card">
   <h3>📝 Quản lý câu hỏi (hiện cho học sinh xem khi đặt cược)</h3>
-  <p style="color:#888; font-size:0.85rem;">Nhập nội dung đề bài và đáp án A/B/C — học sinh sẽ thấy ngay khi mở trang. Có thể để trống câu nào đó nếu chỉ muốn đặt cược mà không hiện đề. Cô có thể sửa lại bất cứ lúc nào, kể cả giữa buổi học.</p>
-  <button class="btn btn-unlock" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="fillSampleQuestions()">⚡ Điền mẫu Câu 1–4 (theo đề Listening Section 3)</button>
+  <p style="color:#888; font-size:0.85rem;">Nhập nội dung đề bài và đáp án — học sinh sẽ thấy ngay khi mở trang. Có thể để trống câu nào đó nếu chỉ muốn đặt cược mà không hiện đề. Cô có thể sửa lại bất cứ lúc nào, kể cả giữa buổi học.</p>
+  <label class="btn btn-unlock" style="width:auto; padding:10px 16px; margin-bottom:10px; display:inline-block; cursor:pointer;">
+    📂 Import từ file / ảnh
+    <input type="file" accept=".txt,image/*" onchange="handleImportFile(event)" style="display:none;">
+  </label>
   <button class="btn btn-reset" style="width:auto; padding:10px 16px; margin-bottom:10px;" onclick="clearQuestionsOnly()">🧹 Xoá đề bài</button>
+  <div id="importStatus" style="display:none; color:#4da6ff; font-size:0.85rem; margin-bottom:10px;"></div>
+  <p style="color:#777; font-size:0.78rem; margin:-4px 0 10px;">Hỗ trợ file <strong>.txt</strong> (câu hỏi đánh số "1. 2. 3...", đáp án đánh chữ "A. B. C...") hoặc <strong>ảnh chụp đề</strong> (hệ thống tự nhận diện chữ trong ảnh — cần ảnh rõ nét, chụp thẳng, không mờ/nghiêng). Sau khi đọc xong, cô sẽ thấy lại toàn bộ văn bản để <strong>kiểm tra/sửa trước</strong> khi hệ thống tách thành từng câu.</p>
+
+  <div id="importPreviewCard" class="import-preview" style="display:none;">
+    <strong>Xem trước &amp; chỉnh sửa văn bản trước khi tách câu hỏi:</strong>
+    <img id="importPreviewImg" style="display:none;">
+    <textarea id="importPreviewText" placeholder="Văn bản nhận diện được sẽ hiện ở đây, cô có thể sửa trực tiếp trước khi tách câu..."></textarea>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button class="btn btn-unlock" style="width:auto; padding:8px 16px;" onclick="confirmImportParse()">✅ Tách câu hỏi từ văn bản này</button>
+      <button class="btn btn-reset" style="width:auto; padding:8px 16px;" onclick="cancelImportPreview()">❌ Huỷ</button>
+    </div>
+  </div>
+
   <div id="questionEditRows"></div>
   <button class="btn-reveal" style="background:#28a745; color:#fff;" onclick="saveQuestions()">💾 LƯU CÂU HỎI</button>
 </div>
@@ -122,6 +174,14 @@
   <div id="leaderboard"></div>
 </div>
 
+<div class="card" id="statsCard" style="display:none;">
+  <h3>📊 Thống kê theo câu</h3>
+  <p style="color:#888; font-size:0.8rem; margin-top:-6px;">Đáp án mỗi đội "chọn" được tính là đáp án họ đặt nhiều xu nhất trong câu đó. Vạch xanh lá là đáp án đúng.</p>
+  <div id="questionStats"></div>
+</div>
+
+</div><!-- /#adminApp -->
+
 <script>
   // ====== CẤU HÌNH FIREBASE (đã gộp sẵn, không cần file riêng) ======
   const firebaseConfig = {
@@ -138,13 +198,14 @@
 
   // ====== MẬT KHẨU TRANG ADMIN ======
   // Đổi chuỗi bên dưới thành mật khẩu riêng của cô trước khi gửi link cho cô.
-  // Đây chỉ là lớp bảo vệ đơn giản (chặn học sinh tò mò vào nhầm link),
-  // không phải bảo mật cấp cao — vì dữ liệu Firebase vẫn mở theo rules đã cấu hình.
+  // Đây là lớp bảo vệ đơn giản (chặn học sinh tò mò vào nhầm link, gõ tay đường link admin),
+  // không phải bảo mật cấp cao — phù hợp cho công cụ dùng trong lớp học.
   const ADMIN_PASSWORD = "cogiaovip2026";
+  let adminAppStarted = false;
 
   (function checkAdminPassword() {
     const alreadyOk = sessionStorage.getItem('adminAuthed') === 'yes';
-    if (alreadyOk) return;
+    if (alreadyOk) { showAdminApp(); return; }
     let attempt = prompt("Nhập mật khẩu Admin:");
     while (attempt !== ADMIN_PASSWORD) {
       if (attempt === null) {
@@ -154,39 +215,149 @@
       attempt = prompt("Sai mật khẩu, thử lại:");
     }
     sessionStorage.setItem('adminAuthed', 'yes');
+    showAdminApp();
   })();
+
+  function showAdminApp() {
+    document.getElementById('adminApp').style.display = 'block';
+    initAdminApp();
+  }
 
   let gameState = { status: 'open', correctAnswers: {} };
   let teamsData = {};
   let TOTAL_QUESTIONS = 10;
+  let NUM_OPTIONS = 3;
+  let TOTAL_BUDGET = 100;
+  function OPT_LETTERS() { return Array.from({length: NUM_OPTIONS}, (_,i)=>String.fromCharCode(65+i)); }
 
-  async function saveTotalQuestions() {
+  function initAdminApp() {
+    if (adminAppStarted) return;
+    adminAppStarted = true;
+
+    // Đọc cấu hình cô đã lưu trước đó rồi mới dựng các form soạn đề / chọn đáp án
+    Promise.all([
+      db.ref('game/totalQuestions').once('value'),
+      db.ref('game/numOptions').once('value'),
+      db.ref('game/totalBudget').once('value')
+    ]).then(([tSnap, oSnap, bSnap]) => {
+      TOTAL_QUESTIONS = tSnap.val() || 10;
+      NUM_OPTIONS = oSnap.val() || 3;
+      TOTAL_BUDGET = bSnap.val() || 100;
+      document.getElementById('totalQInput').value = TOTAL_QUESTIONS;
+      document.getElementById('numOptInput').value = NUM_OPTIONS;
+      document.getElementById('totalBudgetInput').value = TOTAL_BUDGET;
+      document.getElementById('totalQLabel').textContent = TOTAL_QUESTIONS;
+      buildQuestionEditRows();
+      buildAnswerRows();
+    });
+
+    db.ref('game/status').on('value', snap => {
+      gameState.status = snap.val() || 'open';
+      updateStatusUI();
+    });
+
+    // Đáp án đúng giờ nằm ở node riêng "answers", được Firebase Rules bảo vệ —
+    // chỉ tài khoản cô (đã đăng nhập) mới đọc/ghi được trước khi công bố kết quả.
+    db.ref('answers').on('value', snap => {
+      gameState.correctAnswers = snap.val() || {};
+      updateStatusUI();
+    });
+
+    db.ref('teams').on('value', snap => {
+      teamsData = snap.val() || {};
+      renderTeams();
+      renderOptionTotals();
+      if (gameState.status === 'revealed') {
+        renderLeaderboard();
+        renderQuestionStats();
+        document.getElementById('leaderboardCard').style.display = 'block';
+        document.getElementById('statsCard').style.display = 'block';
+      } else {
+        document.getElementById('statsCard').style.display = 'none';
+      }
+    });
+
+    // Hiện lại nội dung đề + đáp án ngay tại khu chọn đáp án đúng, để cô không cần nhớ hay tìm đề giấy
+    db.ref('game/questions').on('value', snap => {
+      const qs = snap.val() || {};
+      const letters = OPT_LETTERS();
+      for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+        const q = qs[i];
+        const el = document.getElementById(`qcontext-${i}`);
+        if (!el) continue;
+        if (q && (q.text || (q.options && letters.some(o => q.options[o])))) {
+          const opts = q.options || {};
+          el.innerHTML = `${q.text ? q.text + '<br>' : ''}` +
+            letters.map(o => opts[o] ? `<b>${o}.</b> ${opts[o]}` : '').filter(Boolean).join(' &nbsp; ');
+        } else {
+          el.innerHTML = '<span style="color:#555;">(chưa nhập đề cho câu này ở khu "Quản lý câu hỏi")</span>';
+        }
+      }
+    });
+
+    // Đếm ngược đặt cược
+    let countdownInterval = null;
+    db.ref('game/countdownEndTime').on('value', snap => {
+      const endTime = snap.val();
+      if (countdownInterval) clearInterval(countdownInterval);
+      const el = document.getElementById('countdownDisplay');
+      if (!endTime) { el.textContent = ''; return; }
+      countdownInterval = setInterval(() => {
+        const remain = endTime - Date.now();
+        if (remain <= 0) {
+          el.textContent = '⏰ Hết giờ!';
+          clearInterval(countdownInterval);
+          if (gameState.status === 'open') db.ref('game/status').set('locked');
+          return;
+        }
+        const m = Math.floor(remain / 60000), s = Math.floor((remain % 60000) / 1000);
+        el.textContent = `⏳ Còn ${m}:${s.toString().padStart(2,'0')}`;
+      }, 1000);
+    });
+  }
+
+  function startCountdown() {
+    const mins = parseInt(document.getElementById('countdownMinutes').value) || 3;
+    db.ref('game/countdownEndTime').set(Date.now() + mins * 60000);
+    if (gameState.status !== 'open') db.ref('game/status').set('open');
+  }
+
+  function cancelCountdown() {
+    db.ref('game/countdownEndTime').remove();
+  }
+
+  async function saveConfig() {
     const n = parseInt(document.getElementById('totalQInput').value) || 10;
+    const o = parseInt(document.getElementById('numOptInput').value) || 3;
+    const budget = parseInt(document.getElementById('totalBudgetInput').value) || 100;
     if (n < 1 || n > 30) { alert('Số câu hỏi phải từ 1 đến 30'); return; }
-    await db.ref('game/totalQuestions').set(n);
+    if (o < 2 || o > 6) { alert('Số đáp án mỗi câu phải từ 2 đến 6'); return; }
+    if (budget < 1 || budget > 100000) { alert('Tổng số xu phải từ 1 đến 100000'); return; }
+    await db.ref().update({ 'game/totalQuestions': n, 'game/numOptions': o, 'game/totalBudget': budget });
     TOTAL_QUESTIONS = n;
+    NUM_OPTIONS = o;
+    TOTAL_BUDGET = budget;
     document.getElementById('totalQLabel').textContent = n;
     buildQuestionEditRows();
     buildAnswerRows();
-    alert('Đã lưu số câu hỏi: ' + n + '. Trang học sinh sẽ dùng đúng số câu này.');
+    alert(`Đã lưu cấu hình: ${n} câu hỏi, ${o} đáp án mỗi câu (${OPT_LETTERS().join(', ')}), ${budget} xu/đội.`);
   }
 
   function buildQuestionEditRows() {
     const qEditContainer = document.getElementById('questionEditRows');
     qEditContainer.innerHTML = '';
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       qEditContainer.innerHTML += `
         <div class="qedit-card">
           <strong>Câu ${i}</strong>
           <textarea id="edit-qtext-${i}" placeholder="Nội dung câu hỏi ${i}..."></textarea>
           <div class="qedit-opts">
-            <input id="edit-qopt-${i}-A" placeholder="Đáp án A">
-            <input id="edit-qopt-${i}-B" placeholder="Đáp án B">
-            <input id="edit-qopt-${i}-C" placeholder="Đáp án C">
+            ${letters.map(o => `<input id="edit-qopt-${i}-${o}" placeholder="Đáp án ${o}">`).join('')}
           </div>
         </div>`;
     }
-    // Nạp lại nội dung đã lưu trước đó (nếu có) cho đúng số câu hiện tại
+    // Nạp lại nội dung đã lưu trước đó (nếu có) cho đúng số câu / số đáp án hiện tại
     db.ref('game/questions').once('value').then(snap => {
       const qs = snap.val() || {};
       for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
@@ -194,12 +365,10 @@
         if (!q) continue;
         const elText = document.getElementById(`edit-qtext-${i}`);
         if (elText) elText.value = q.text || '';
-        const elA = document.getElementById(`edit-qopt-${i}-A`);
-        if (elA) elA.value = (q.options && q.options.A) || '';
-        const elB = document.getElementById(`edit-qopt-${i}-B`);
-        if (elB) elB.value = (q.options && q.options.B) || '';
-        const elC = document.getElementById(`edit-qopt-${i}-C`);
-        if (elC) elC.value = (q.options && q.options.C) || '';
+        letters.forEach(o => {
+          const el = document.getElementById(`edit-qopt-${i}-${o}`);
+          if (el) el.value = (q.options && q.options[o]) || '';
+        });
       }
     });
   }
@@ -207,13 +376,12 @@
   function buildAnswerRows() {
     const answerRows = document.getElementById('answerRows');
     answerRows.innerHTML = '';
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       answerRows.innerHTML += `
         <div class="q-row">
           <span class="qlabel">Câu ${i}</span>
-          <button class="opt-btn" id="opt-${i}-A" onclick="setCorrect(${i},'A')">A</button>
-          <button class="opt-btn" id="opt-${i}-B" onclick="setCorrect(${i},'B')">B</button>
-          <button class="opt-btn" id="opt-${i}-C" onclick="setCorrect(${i},'C')">C</button>
+          ${letters.map(o => `<button class="opt-btn" id="opt-${i}-${o}" onclick="setCorrect(${i},'${o}')">${o}</button>`).join('')}
           <span class="opt-totals" id="opttotals-${i}"></span>
           <div class="q-context" id="qcontext-${i}"></div>
         </div>`;
@@ -222,25 +390,19 @@
     renderOptionTotals();
   }
 
-  // Đọc số lượng câu hỏi cô đã cấu hình trước đó rồi mới dựng các form soạn đề / chọn đáp án
-  db.ref('game/totalQuestions').once('value').then(snap => {
-    TOTAL_QUESTIONS = snap.val() || 10;
-    document.getElementById('totalQInput').value = TOTAL_QUESTIONS;
-    document.getElementById('totalQLabel').textContent = TOTAL_QUESTIONS;
-    buildQuestionEditRows();
-    buildAnswerRows();
-  });
-
   async function saveQuestions() {
     const questions = {};
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
       const text = document.getElementById(`edit-qtext-${i}`).value.trim();
-      const A = document.getElementById(`edit-qopt-${i}-A`).value.trim();
-      const B = document.getElementById(`edit-qopt-${i}-B`).value.trim();
-      const C = document.getElementById(`edit-qopt-${i}-C`).value.trim();
-      if (text || A || B || C) {
-        questions[i] = { text: text, options: { A: A, B: B, C: C } };
-      }
+      const options = {};
+      let hasAny = !!text;
+      letters.forEach(o => {
+        const v = document.getElementById(`edit-qopt-${i}-${o}`).value.trim();
+        options[o] = v;
+        if (v) hasAny = true;
+      });
+      if (hasAny) questions[i] = { text: text, options: options };
     }
     try {
       await db.ref('game/questions').set(questions);
@@ -250,56 +412,144 @@
     }
   }
 
-  function fillSampleQuestions() {
-    const sample = {
-      1: { text: "According to John, what is the main advantage of space exploration?", A: "To supply resources for use on Earth.", B: "To find out more about the origins of the planet.", C: "To establish a colony for humans if Earth becomes uninhabitable." },
-      2: { text: "According to the speakers, why can't robots be sent into space instead of humans?", A: "They cannot operate for long enough.", B: "They are too expensive to build.", C: "They are too reliant on humans." },
-      3: { text: "What are we told about the space technology currently used?", A: "It can be unreliable.", B: "It is based on old technology.", C: "It is becoming cheaper to produce." },
-      4: { text: "What is the biggest problem in sending robots to Mars?", A: "the distance", B: "the atmosphere", C: "the extreme temperatures" }
-    };
-    Object.keys(sample).forEach(i => {
-      document.getElementById(`edit-qtext-${i}`).value = sample[i].text;
-      document.getElementById(`edit-qopt-${i}-A`).value = sample[i].A;
-      document.getElementById(`edit-qopt-${i}-B`).value = sample[i].B;
-      document.getElementById(`edit-qopt-${i}-C`).value = sample[i].C;
+  // ====== IMPORT ĐỀ TỪ FILE .TXT HOẶC ẢNH (tự tách câu hỏi + đáp án) ======
+
+  function parseImportedText(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const questions = {};
+    let currentQ = null, currentOptLetter = null;
+    const qRegex = /^(\d{1,2})[\.\):]\s*(.*)$/;
+    const optRegex = /^([A-Za-z])[\.\):]\s*(.*)$/;
+
+    lines.forEach(line => {
+      const qm = line.match(qRegex);
+      const om = line.match(optRegex);
+      if (qm) {
+        currentQ = parseInt(qm[1]);
+        currentOptLetter = null;
+        if (!questions[currentQ]) questions[currentQ] = { text: '', options: {} };
+        if (qm[2]) questions[currentQ].text = (questions[currentQ].text + ' ' + qm[2]).trim();
+      } else if (om && currentQ) {
+        currentOptLetter = om[1].toUpperCase();
+        questions[currentQ].options[currentOptLetter] = om[2].trim();
+      } else if (currentQ) {
+        if (currentOptLetter) {
+          questions[currentQ].options[currentOptLetter] = (questions[currentQ].options[currentOptLetter] + ' ' + line).trim();
+        } else {
+          questions[currentQ].text = (questions[currentQ].text + ' ' + line).trim();
+        }
+      }
     });
-    alert('Đã điền mẫu Câu 1–4. Cô kéo xuống điền tiếp Câu 5–10 theo đề của mình, rồi bấm "LƯU CÂU HỎI".');
+
+    const qNums = Object.keys(questions).map(Number);
+    if (qNums.length === 0) return null;
+    const maxQ = Math.max(...qNums);
+    let maxOpts = 0;
+    qNums.forEach(n => { maxOpts = Math.max(maxOpts, Object.keys(questions[n].options).length); });
+    return { questions: questions, totalQuestions: Math.min(30, maxQ), numOptions: Math.min(6, Math.max(2, maxOpts || 3)) };
   }
 
-  // Hiện lại nội dung đề + đáp án (đã nhập ở khu Quản lý câu hỏi) ngay tại khu chọn đáp án đúng, để cô không cần nhớ hay tìm đề giấy
-  db.ref('game/questions').on('value', snap => {
-    const qs = snap.val() || {};
+  async function applyParsedQuestions(parsed) {
+    TOTAL_QUESTIONS = parsed.totalQuestions;
+    NUM_OPTIONS = parsed.numOptions;
+    document.getElementById('totalQInput').value = TOTAL_QUESTIONS;
+    document.getElementById('numOptInput').value = NUM_OPTIONS;
+    document.getElementById('totalQLabel').textContent = TOTAL_QUESTIONS;
+    buildQuestionEditRows();
+    buildAnswerRows();
+    await new Promise(r => setTimeout(r, 60)); // chờ DOM dựng xong các ô input
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
-      const q = qs[i];
-      const el = document.getElementById(`qcontext-${i}`);
-      if (!el) continue;
-      if (q && (q.text || (q.options && (q.options.A || q.options.B || q.options.C)))) {
-        const opts = q.options || {};
-        el.innerHTML = `${q.text ? q.text + '<br>' : ''}` +
-          ['A','B','C'].map(o => opts[o] ? `<b>${o}.</b> ${opts[o]}` : '').filter(Boolean).join(' &nbsp; ');
-      } else {
-        el.innerHTML = '<span style="color:#555;">(chưa nhập đề cho câu này ở khu "Quản lý câu hỏi")</span>';
-      }
+      const q = parsed.questions[i];
+      if (!q) continue;
+      const elText = document.getElementById(`edit-qtext-${i}`);
+      if (elText) elText.value = q.text || '';
+      letters.forEach(o => {
+        const el = document.getElementById(`edit-qopt-${i}-${o}`);
+        if (el) el.value = (q.options && q.options[o]) || '';
+      });
     }
-  });
+    alert(`Đã tách được ${TOTAL_QUESTIONS} câu, ${NUM_OPTIONS} đáp án/câu (${letters.join(', ')}).\n\nCô kéo xuống kiểm tra lại nội dung, sửa chỗ nào chưa đúng, rồi bấm "LƯU CÂU HỎI" và "Lưu cấu hình" để áp dụng cho học sinh.`);
+  }
+
+  function loadTesseract() {
+    return new Promise((resolve, reject) => {
+      if (window.Tesseract) return resolve();
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Không tải được thư viện đọc ảnh (OCR). Kiểm tra kết nối mạng rồi thử lại.'));
+      document.head.appendChild(script);
+    });
+  }
+
+  // Đọc file/ảnh, hiện văn bản nhận diện được ra khu xem trước để cô kiểm tra/sửa TRƯỚC khi tách thành câu hỏi
+  async function handleImportFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('importStatus');
+    const previewCard = document.getElementById('importPreviewCard');
+    const imgEl = document.getElementById('importPreviewImg');
+    const textEl = document.getElementById('importPreviewText');
+
+    if (file.type.startsWith('image/')) {
+      imgEl.src = URL.createObjectURL(file);
+      imgEl.style.display = 'block';
+      textEl.value = '';
+      previewCard.style.display = 'block';
+      statusEl.textContent = '🔎 Đang nhận diện chữ trong ảnh, có thể mất 15-40 giây tuỳ ảnh...';
+      statusEl.style.display = 'block';
+      try {
+        await loadTesseract();
+        const result = await Tesseract.recognize(file, 'eng+vie');
+        textEl.value = result.data.text;
+        statusEl.style.display = 'none';
+        if (!result.data.text.trim()) {
+          statusEl.textContent = '⚠️ Không nhận diện được chữ nào rõ ràng — cô có thể tự gõ lại văn bản vào ô bên dưới rồi bấm "Tách câu hỏi".';
+          statusEl.style.display = 'block';
+          statusEl.style.color = '#ffb84d';
+        }
+      } catch (e) {
+        statusEl.style.display = 'none';
+        alert('Lỗi khi đọc ảnh: ' + e.message);
+      }
+    } else {
+      imgEl.style.display = 'none';
+      imgEl.src = '';
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        textEl.value = e.target.result;
+        previewCard.style.display = 'block';
+      };
+      reader.readAsText(file);
+    }
+    event.target.value = '';
+  }
+
+  async function confirmImportParse() {
+    const text = document.getElementById('importPreviewText').value;
+    const parsed = parseImportedText(text);
+    if (!parsed) {
+      alert('Không nhận diện được câu hỏi nào trong văn bản này. Kiểm tra lại định dạng: câu hỏi đánh số "1. 2. 3...", đáp án đánh chữ "A. B. C..." — cô có thể sửa trực tiếp trong ô văn bản rồi bấm lại nút này.');
+      return;
+    }
+    await applyParsedQuestions(parsed);
+    cancelImportPreview();
+  }
+
+  function cancelImportPreview() {
+    document.getElementById('importPreviewCard').style.display = 'none';
+    document.getElementById('importPreviewImg').src = '';
+    document.getElementById('importPreviewText').value = '';
+    document.getElementById('importStatus').style.display = 'none';
+  }
+
+  // Hiện lại nội dung đề + đáp án được lắng nghe trong initAdminApp() ở trên, không cần lặp lại ở đây.
 
   function setCorrect(q, opt) {
     if (gameState.status === 'revealed') { alert('Kết quả đã công bố rồi. Hãy bấm "Xoá đáp án" ở khu Đáp án đúng nếu cần chọn lại và công bố lại.'); return; }
-    db.ref('game/correctAnswers/' + q).set(opt);
+    db.ref('answers/' + q).set(opt);
   }
-
-  db.ref('game').on('value', snap => {
-    gameState = snap.val() || { status: 'open', correctAnswers: {} };
-    if (!gameState.correctAnswers) gameState.correctAnswers = {};
-    updateStatusUI();
-  });
-
-  db.ref('teams').on('value', snap => {
-    teamsData = snap.val() || {};
-    renderTeams();
-    renderOptionTotals();
-    if (gameState.status === 'revealed') renderLeaderboard();
-  });
 
   function updateStatusUI() {
     const pill = document.getElementById('statusPill');
@@ -316,8 +566,9 @@
       lockBtn.textContent = '🔒 Khoá đặt cược'; lockBtn.className = 'btn btn-lock';
     }
 
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
-      ['A','B','C'].forEach(opt => {
+      letters.forEach(opt => {
         const btn = document.getElementById(`opt-${i}-${opt}`);
         if (btn) btn.classList.toggle('selected', gameState.correctAnswers[i] === opt);
       });
@@ -342,7 +593,10 @@
     tbody.innerHTML = ids.map(id => {
       const t = teamsData[id];
       let spent = 0;
-      if (t.bets) for (let i = 1; i <= TOTAL_QUESTIONS; i++) spent += (t.bets[i]?.A||0)+(t.bets[i]?.B||0)+(t.bets[i]?.C||0);
+      if (t.bets) for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+        const b = t.bets[i] || {};
+        spent += Object.values(b).reduce((s, v) => s + (v || 0), 0);
+      }
       return `<tr class="${t.submitted ? 'submitted' : ''}">
         <td>${t.name}</td>
         <td>${spent}</td>
@@ -354,13 +608,14 @@
   }
 
   function renderOptionTotals() {
+    const letters = OPT_LETTERS();
     for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
-      let totals = { A: 0, B: 0, C: 0 };
+      let totals = {}; letters.forEach(o => totals[o] = 0);
       Object.values(teamsData).forEach(t => {
-        if (t.bets && t.bets[i]) { totals.A += t.bets[i].A||0; totals.B += t.bets[i].B||0; totals.C += t.bets[i].C||0; }
+        if (t.bets && t.bets[i]) letters.forEach(o => totals[o] += t.bets[i][o] || 0);
       });
       const el = document.getElementById(`opttotals-${i}`);
-      if (el) el.textContent = `A:${totals.A} B:${totals.B} C:${totals.C}`;
+      if (el) el.textContent = letters.map(o => `${o}:${totals[o]}`).join(' ');
     }
   }
 
@@ -371,6 +626,38 @@
     document.getElementById('leaderboard').innerHTML = teams.map((t, i) =>
       `<div class="leader-row"><span>${medals[i] || (i+1)}. ${t.name}</span><strong>${t.balance} xu</strong></div>`
     ).join('') || '<p style="color:#888;">Chưa có đội nào nộp bài</p>';
+  }
+
+  function renderQuestionStats() {
+    const teams = Object.values(teamsData).filter(t => t.submitted);
+    const total = teams.length;
+    const letters = OPT_LETTERS();
+    const correct = gameState.correctAnswers || {};
+    let html = '';
+    for (let q = 1; q <= TOTAL_QUESTIONS; q++) {
+      const counts = {}; letters.forEach(o => counts[o] = 0);
+      let noAnswer = 0;
+      teams.forEach(t => {
+        const b = (t.bets && t.bets[q]) || {};
+        let maxOpt = null, maxVal = 0;
+        letters.forEach(o => { if ((b[o] || 0) > maxVal) { maxVal = b[o]; maxOpt = o; } });
+        if (maxOpt) counts[maxOpt]++; else noAnswer++;
+      });
+      const correctOpt = correct[q];
+      html += `<div class="stat-q"><strong>Câu ${q}</strong>`;
+      letters.forEach(o => {
+        const pct = total > 0 ? Math.round((counts[o] / total) * 100) : 0;
+        const isCorrect = o === correctOpt;
+        html += `<div class="stat-bar-row">
+          <span class="stat-label">${o}${isCorrect ? ' ✓' : ''}</span>
+          <div class="stat-bar-bg"><div class="stat-bar-fill ${isCorrect ? 'correct' : ''}" style="width:${pct}%"></div></div>
+          <span class="stat-pct">${pct}% (${counts[o]})</span>
+        </div>`;
+      });
+      if (noAnswer > 0) html += `<div class="stat-noanswer">${noAnswer} đội không đặt cược rõ ràng cho câu này</div>`;
+      html += `</div>`;
+    }
+    document.getElementById('questionStats').innerHTML = html || '<p style="color:#888;">Chưa có dữ liệu</p>';
   }
 
   async function computeAndReveal() {
@@ -396,7 +683,7 @@
       for (let q = 1; q <= TOTAL_QUESTIONS; q++) {
         const correctOpt = correct[q];
         teamIds.forEach(id => {
-          const b = (teams[id].bets && teams[id].bets[q]) || { A: 0, B: 0, C: 0 };
+          const b = (teams[id].bets && teams[id].bets[q]) || {};
           const payout = b[correctOpt] || 0;
           payoutTotal[id] += payout;
           questionResults[id][q] = { bet: b, correct: correctOpt, payout: payout, won: payout > 0 };
@@ -433,7 +720,7 @@
 
   async function clearAnswersOnly() {
     if (!confirm('Xoá đáp án đúng đã chọn cho tất cả các câu? Đề bài và danh sách đội vẫn được giữ nguyên.')) return;
-    await db.ref('game/correctAnswers').remove();
+    await db.ref('answers').remove();
     if (gameState.status === 'revealed') await db.ref('game/status').set('locked');
   }
 
