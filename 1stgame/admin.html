@@ -147,10 +147,23 @@
   <p style="color:#777; font-size:0.78rem; margin:-4px 0 10px;">Hỗ trợ file <strong>.txt</strong> (câu hỏi đánh số "1. 2. 3...", đáp án đánh chữ "A. B. C...") hoặc <strong>ảnh chụp đề</strong> (hệ thống tự nhận diện chữ trong ảnh — cần ảnh rõ nét, chụp thẳng, không mờ/nghiêng). Sau khi đọc xong, cô sẽ thấy lại toàn bộ văn bản để <strong>kiểm tra/sửa trước</strong> khi hệ thống tách thành từng câu — OCR đôi khi làm mất chữ cái A/B/C ở đầu dòng đáp án hoặc đọc nhầm chữ, cô nhớ rà lại: <strong>mỗi đáp án phải có đúng 1 chữ cái riêng ở đầu dòng</strong>, thiếu chỗ nào thì gõ thêm vào trước khi bấm Tách câu hỏi.</p>
 
   <div id="importPreviewCard" class="import-preview" style="display:none;">
-    <strong>Xem trước &amp; chỉnh sửa văn bản trước khi tách câu hỏi:</strong>
-    <img id="importPreviewImg" style="display:none;">
-    <textarea id="importPreviewText" placeholder="Văn bản nhận diện được sẽ hiện ở đây, cô có thể sửa trực tiếp trước khi tách câu..."></textarea>
-    <div style="display:flex; gap:10px; margin-top:10px;">
+    <strong>Xem trước &amp; chỉnh sửa trước khi tách câu hỏi:</strong>
+
+    <div id="cropStep">
+      <p style="color:#ccc; font-size:0.85rem; margin:8px 0;">Kéo chuột (hoặc vuốt trên điện thoại) để chọn đúng vùng đề bài cần đọc — bỏ khung phụ/hình ảnh không liên quan ra ngoài vùng chọn sẽ giúp nhận diện chính xác hơn nhiều.</p>
+      <div id="cropContainer" style="position:relative; display:inline-block; max-width:100%; touch-action:none; line-height:0;">
+        <img id="importPreviewImg" style="max-width:100%; display:block; border-radius:8px;">
+        <canvas id="cropCanvas" style="position:absolute; top:0; left:0; cursor:crosshair;"></canvas>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+        <button class="btn btn-unlock" style="width:auto; padding:8px 16px;" onclick="runOcrOnCrop()">✂️ Nhận diện vùng đã chọn</button>
+        <button class="btn" style="width:auto; padding:8px 16px; background:#333; color:#ccc;" onclick="runOcrOnFullImage()">📄 Dùng toàn bộ ảnh</button>
+        <button class="btn btn-reset" style="width:auto; padding:8px 16px;" onclick="cancelImportPreview()">❌ Huỷ</button>
+      </div>
+    </div>
+
+    <textarea id="importPreviewText" style="display:none;" placeholder="Văn bản nhận diện được sẽ hiện ở đây, cô có thể sửa trực tiếp trước khi tách câu..."></textarea>
+    <div id="textStepButtons" style="display:none; gap:10px; margin-top:10px;">
       <button class="btn btn-unlock" style="width:auto; padding:8px 16px;" onclick="confirmImportParse()">✅ Tách câu hỏi từ văn bản này</button>
       <button class="btn btn-reset" style="width:auto; padding:8px 16px;" onclick="cancelImportPreview()">❌ Huỷ</button>
     </div>
@@ -420,6 +433,38 @@
 
   // ====== IMPORT ĐỀ TỪ FILE .TXT HOẶC ẢNH (tự tách câu hỏi + đáp án) ======
 
+  // Sắp lại chữ theo TOẠ ĐỘ trong ảnh (trên trước, cùng hàng thì trái trước) thay vì tin thứ tự Tesseract tự đoán —
+  // đáng tin hơn nhiều khi ảnh có khung phụ/cột chèn ngang (VD: khung "Test Tip") làm rối thứ tự đọc mặc định.
+  function reconstructTextByPosition(data) {
+    try {
+      const words = data && data.words;
+      if (!words || words.length === 0) return null;
+
+      const items = words
+        .filter(w => w.text && w.text.trim())
+        .map(w => ({ text: w.text.trim(), x0: w.bbox.x0, y0: w.bbox.y0, y1: w.bbox.y1 }));
+      if (items.length === 0) return null;
+
+      const avgHeight = items.reduce((s, w) => s + (w.y1 - w.y0), 0) / items.length;
+      const lineThreshold = Math.max(8, avgHeight * 0.6);
+
+      items.sort((a, b) => a.y0 - b.y0);
+      const lines = [];
+      items.forEach(w => {
+        const midY = (w.y0 + w.y1) / 2;
+        let line = lines.find(l => Math.abs(l.midY - midY) < lineThreshold);
+        if (!line) { line = { midY: midY, words: [] }; lines.push(line); }
+        line.words.push(w);
+        line.midY = line.words.reduce((s, x) => s + (x.y0 + x.y1) / 2, 0) / line.words.length;
+      });
+
+      lines.sort((a, b) => a.midY - b.midY);
+      return lines.map(l => l.words.sort((a, b) => a.x0 - b.x0).map(w => w.text).join(' ')).join('\n');
+    } catch (e) {
+      return null; // nếu dữ liệu toạ độ không có sẵn, quay lại dùng văn bản gốc của Tesseract
+    }
+  }
+
   // Sửa các lỗi nhận diện OCR hay gặp ở đầu dòng đáp án (VD: chữ "C" hay bị đọc nhầm thành ký hiệu bản quyền ©)
   function normalizeOcrText(text) {
     return text.split(/\r?\n/).map(line => {
@@ -548,47 +593,164 @@
     return checked ? checked.value : 'eng';
   }
 
-  // Đọc file/ảnh, hiện văn bản nhận diện được ra khu xem trước để cô kiểm tra/sửa TRƯỚC khi tách thành câu hỏi
-  async function handleImportFile(event) {
+  // ====== CHỌN VÙNG ẢNH (CROP) TRƯỚC KHI OCR ======
+  let cropState = { file: null, dispW: 0, dispH: 0, selecting: false, startX: 0, startY: 0, rect: null };
+
+  function setupCropUI(file) {
+    cropState = { file: file, dispW: 0, dispH: 0, selecting: false, startX: 0, startY: 0, rect: null };
+    const img = document.getElementById('importPreviewImg');
+    img.src = URL.createObjectURL(file);
+    img.onload = () => {
+      requestAnimationFrame(() => {
+        const canvas = document.getElementById('cropCanvas');
+        cropState.dispW = img.clientWidth;
+        cropState.dispH = img.clientHeight;
+        canvas.width = cropState.dispW;
+        canvas.height = cropState.dispH;
+        canvas.style.width = cropState.dispW + 'px';
+        canvas.style.height = cropState.dispH + 'px';
+        drawCropOverlay();
+      });
+    };
+  }
+
+  function drawCropOverlay() {
+    const canvas = document.getElementById('cropCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (cropState.rect) {
+      const r = cropState.rect;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = '#4da6ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
+  }
+
+  function getPointerPos(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  function initCropCanvasEvents() {
+    const canvas = document.getElementById('cropCanvas');
+    if (canvas.dataset.bound === 'yes') return; // tránh gắn trùng listener nếu import nhiều lần
+    canvas.dataset.bound = 'yes';
+
+    function start(e) {
+      e.preventDefault();
+      const p = getPointerPos(e, canvas);
+      cropState.selecting = true;
+      cropState.startX = p.x;
+      cropState.startY = p.y;
+      cropState.rect = { x: p.x, y: p.y, w: 0, h: 0 };
+    }
+    function move(e) {
+      if (!cropState.selecting) return;
+      e.preventDefault();
+      const p = getPointerPos(e, canvas);
+      const x = Math.min(p.x, cropState.startX), y = Math.min(p.y, cropState.startY);
+      cropState.rect = { x, y, w: Math.abs(p.x - cropState.startX), h: Math.abs(p.y - cropState.startY) };
+      drawCropOverlay();
+    }
+    function end() { cropState.selecting = false; }
+
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    canvas.addEventListener('touchstart', start, { passive: false });
+    canvas.addEventListener('touchmove', move, { passive: false });
+    canvas.addEventListener('touchend', end);
+  }
+
+  function cropFileToBlob(file, rectDisp) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scaleX = img.naturalWidth / cropState.dispW;
+        const scaleY = img.naturalHeight / cropState.dispH;
+        const sx = rectDisp.x * scaleX, sy = rectDisp.y * scaleY;
+        const sw = rectDisp.w * scaleX, sh = rectDisp.h * scaleY;
+        const canvas = document.createElement('canvas');
+        canvas.width = sw; canvas.height = sh;
+        canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+        canvas.toBlob(blob => resolve(blob), 'image/png');
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  async function runOcrOnCrop() {
+    if (!cropState.rect || cropState.rect.w < 15 || cropState.rect.h < 15) {
+      alert('Cô kéo chuột (hoặc vuốt tay) để chọn 1 vùng đủ lớn trên ảnh trước nhé — kéo từ góc này sang góc kia của phần đề cần đọc.');
+      return;
+    }
+    const blob = await cropFileToBlob(cropState.file, cropState.rect);
+    await runOcrPipeline(blob);
+  }
+
+  async function runOcrOnFullImage() {
+    await runOcrPipeline(cropState.file);
+  }
+
+  async function runOcrPipeline(imageFileOrBlob) {
+    const statusEl = document.getElementById('importStatus');
+    document.getElementById('cropStep').style.display = 'none';
+    const textEl = document.getElementById('importPreviewText');
+    textEl.style.display = 'block';
+    document.getElementById('textStepButtons').style.display = 'flex';
+    statusEl.style.color = '#4da6ff';
+    statusEl.textContent = '🔎 Đang xử lý ảnh và nhận diện chữ, có thể mất 15-40 giây tuỳ ảnh...';
+    statusEl.style.display = 'block';
+    try {
+      await loadTesseract();
+      const lang = getSelectedOcrLang();
+      const upscaled = await upscaleImage(imageFileOrBlob, 2).catch(() => imageFileOrBlob);
+      const result = await Tesseract.recognize(upscaled, lang);
+      const rebuiltText = reconstructTextByPosition(result.data);
+      textEl.value = normalizeOcrText(rebuiltText || result.data.text);
+      statusEl.style.display = 'none';
+      if (!result.data.text.trim()) {
+        statusEl.textContent = '⚠️ Không nhận diện được chữ nào rõ ràng — cô có thể tự gõ lại văn bản vào ô bên dưới rồi bấm "Tách câu hỏi".';
+        statusEl.style.display = 'block';
+        statusEl.style.color = '#ffb84d';
+      }
+    } catch (e) {
+      statusEl.style.display = 'none';
+      alert('Lỗi khi đọc ảnh: ' + e.message);
+    }
+  }
+
+  // Đọc file/ảnh — với ảnh sẽ hiện khu chọn vùng (crop) trước, với file .txt thì hiện thẳng văn bản để kiểm tra
+  function handleImportFile(event) {
     const file = event.target.files[0];
     if (!file) return;
-    const statusEl = document.getElementById('importStatus');
     const previewCard = document.getElementById('importPreviewCard');
-    const imgEl = document.getElementById('importPreviewImg');
     const textEl = document.getElementById('importPreviewText');
+    const cropStepEl = document.getElementById('cropStep');
+    const textBtns = document.getElementById('textStepButtons');
 
     if (file.type.startsWith('image/')) {
-      imgEl.src = URL.createObjectURL(file);
-      imgEl.style.display = 'block';
-      textEl.value = '';
       previewCard.style.display = 'block';
-      statusEl.style.color = '#4da6ff';
-      statusEl.textContent = '🔎 Đang xử lý ảnh và nhận diện chữ, có thể mất 15-40 giây tuỳ ảnh...';
-      statusEl.style.display = 'block';
-      try {
-        await loadTesseract();
-        const lang = getSelectedOcrLang();
-        const upscaled = await upscaleImage(file, 2).catch(() => file); // nếu lỗi phóng to thì dùng ảnh gốc
-        const result = await Tesseract.recognize(upscaled, lang);
-        textEl.value = normalizeOcrText(result.data.text);
-        statusEl.style.display = 'none';
-        if (!result.data.text.trim()) {
-          statusEl.textContent = '⚠️ Không nhận diện được chữ nào rõ ràng — cô có thể tự gõ lại văn bản vào ô bên dưới rồi bấm "Tách câu hỏi".';
-          statusEl.style.display = 'block';
-          statusEl.style.color = '#ffb84d';
-        }
-      } catch (e) {
-        statusEl.style.display = 'none';
-        alert('Lỗi khi đọc ảnh: ' + e.message);
-      }
+      cropStepEl.style.display = 'block';
+      textEl.style.display = 'none';
+      textBtns.style.display = 'none';
+      textEl.value = '';
+      document.getElementById('importStatus').style.display = 'none';
+      setupCropUI(file);
+      initCropCanvasEvents();
     } else {
-      imgEl.style.display = 'none';
-      imgEl.src = '';
+      cropStepEl.style.display = 'none';
+      textEl.style.display = 'block';
+      textBtns.style.display = 'flex';
+      previewCard.style.display = 'block';
       const reader = new FileReader();
-      reader.onload = (e) => {
-        textEl.value = e.target.result;
-        previewCard.style.display = 'block';
-      };
+      reader.onload = (e) => { textEl.value = e.target.result; };
       reader.readAsText(file);
     }
     event.target.value = '';
@@ -609,7 +771,13 @@
     document.getElementById('importPreviewCard').style.display = 'none';
     document.getElementById('importPreviewImg').src = '';
     document.getElementById('importPreviewText').value = '';
+    document.getElementById('importPreviewText').style.display = 'none';
+    document.getElementById('textStepButtons').style.display = 'none';
+    document.getElementById('cropStep').style.display = 'block';
     document.getElementById('importStatus').style.display = 'none';
+    const canvas = document.getElementById('cropCanvas');
+    if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    cropState = { file: null, dispW: 0, dispH: 0, selecting: false, startX: 0, startY: 0, rect: null };
   }
 
   // Hiện lại nội dung đề + đáp án được lắng nghe trong initAdminApp() ở trên, không cần lặp lại ở đây.
