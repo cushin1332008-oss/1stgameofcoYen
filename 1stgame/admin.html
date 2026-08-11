@@ -569,8 +569,9 @@
     });
   }
 
-  // Phóng to ảnh trước khi đưa vào OCR — chữ nhỏ trong ảnh chụp đề thường được nhận diện chính xác hơn nhiều khi ảnh có độ phân giải cao hơn
-  function upscaleImage(file, scale) {
+  // Tiền xử lý ảnh trước khi OCR: phóng to + chuyển xám + tăng tương phản.
+  // Chữ nhỏ/ảnh chụp có bóng, ánh sáng không đều thường được nhận diện chính xác hơn nhiều sau bước này.
+  function preprocessImage(fileOrBlob, scale) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
@@ -581,16 +582,43 @@
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imgData.data;
+        const contrast = 1.35; // >1 = tăng tương phản, giúp chữ đen/nền trắng tách biệt rõ hơn
+        for (let i = 0; i < d.length; i += 4) {
+          let gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          gray = (gray - 128) * contrast + 128;
+          gray = Math.max(0, Math.min(255, gray));
+          d[i] = d[i + 1] = d[i + 2] = gray;
+        }
+        ctx.putImageData(imgData, 0, 0);
+
         canvas.toBlob(blob => resolve(blob), 'image/png');
       };
       img.onerror = () => reject(new Error('Không đọc được ảnh.'));
-      img.src = URL.createObjectURL(file);
+      img.src = URL.createObjectURL(fileOrBlob);
     });
   }
 
   function getSelectedOcrLang() {
     const checked = document.querySelector('input[name="ocrLang"]:checked');
     return checked ? checked.value : 'eng';
+  }
+
+  // Tái sử dụng worker OCR giữa các lần import trong cùng phiên làm việc (đỡ phải tải lại mô hình mỗi lần, nhanh hơn),
+  // đồng thời đặt chế độ đọc "1 khối văn bản đồng nhất" (PSM 6) — phù hợp với danh sách câu hỏi/đáp án xếp dọc,
+  // thường cho thứ tự đọc ổn định hơn chế độ tự động phân tích bố cục mặc định.
+  let ocrWorkerCache = {};
+  async function getOcrWorker(lang) {
+    if (!ocrWorkerCache[lang]) {
+      ocrWorkerCache[lang] = (async () => {
+        const worker = await Tesseract.createWorker(lang);
+        await worker.setParameters({ tessedit_pageseg_mode: '6' });
+        return worker;
+      })().catch(e => { delete ocrWorkerCache[lang]; throw e; });
+    }
+    return ocrWorkerCache[lang];
   }
 
   // ====== CHỌN VÙNG ẢNH (CROP) TRƯỚC KHI OCR ======
@@ -710,8 +738,15 @@
     try {
       await loadTesseract();
       const lang = getSelectedOcrLang();
-      const upscaled = await upscaleImage(imageFileOrBlob, 2).catch(() => imageFileOrBlob);
-      const result = await Tesseract.recognize(upscaled, lang);
+      const processed = await preprocessImage(imageFileOrBlob, 3).catch(() => imageFileOrBlob);
+      let result;
+      try {
+        const worker = await getOcrWorker(lang);
+        result = await worker.recognize(processed);
+      } catch (workerErr) {
+        // Nếu cách gọi qua worker (nhanh hơn, chỉnh được chế độ đọc) gặp lỗi -> tự động quay về cách gọi đơn giản đã chạy ổn định trước đó
+        result = await Tesseract.recognize(processed, lang);
+      }
       const rebuiltText = reconstructTextByPosition(result.data);
       textEl.value = normalizeOcrText(rebuiltText || result.data.text);
       statusEl.style.display = 'none';
