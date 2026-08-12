@@ -279,8 +279,9 @@
   function checkReady() {
     if (readyResolved) return;
     if (configLoadedFlags.total && configLoadedFlags.options && configLoadedFlags.budget) {
+      buildQuestionCards();
+      renderQuestionText();
       readyResolved = true;
-      rebuildIfNeeded();
       resolveReady();
     }
   }
@@ -375,7 +376,8 @@
         if (val < 0) input.value = 0;
         qspent += val;
       });
-      document.getElementById(`qtotal-${i}`).textContent = qspent > 0 ? `(${qspent} xu)` : '';
+      const qtotalEl = document.getElementById(`qtotal-${i}`);
+      if (qtotalEl) qtotalEl.textContent = qspent > 0 ? `(${qspent} xu)` : '';
       spent += qspent;
     }
 
