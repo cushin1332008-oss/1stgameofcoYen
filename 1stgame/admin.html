@@ -949,13 +949,13 @@
       const payoutTotal = {}; teamIds.forEach(id => payoutTotal[id] = 0);
       const questionResults = {}; teamIds.forEach(id => questionResults[id] = {});
 
-      // Công thức: mỗi câu, nếu đội đặt cược vào đúng đáp án -> nhận lại đúng số xu đã đặt cho câu đó.
+      // Công thức: mỗi câu, nếu đội đặt cược vào đúng đáp án -> nhận GẤP ĐÔI số xu đã đặt cho câu đó.
       // Đặt sai (hoặc không đặt) -> không nhận gì cho câu đó (mất số xu đã đặt). Cộng dồn tất cả các câu = số xu cuối cùng.
       for (let q = 1; q <= TOTAL_QUESTIONS; q++) {
         const correctOpt = correct[q];
         teamIds.forEach(id => {
           const b = (teams[id].bets && teams[id].bets[q]) || {};
-          const payout = b[correctOpt] || 0;
+          const payout = (b[correctOpt] || 0) * 2;
           payoutTotal[id] += payout;
           questionResults[id][q] = { bet: b, correct: correctOpt, payout: payout, won: payout > 0 };
         });
