@@ -75,6 +75,18 @@
   <label class="muted">Nhập tên đội / nhóm của bạn:</label>
   <input type="text" id="teamNameInput" class="text-input" placeholder="VD: Nhóm Cú Đêm">
   <button id="joinBtn" onclick="joinTeam()">VÀO TRÒ CHƠI</button>
+  <div style="text-align:center; margin-top:14px;">
+    <a href="#" onclick="showPublicResults(); return false;" style="color:#4da6ff; font-size:0.85rem; text-decoration:none;">🏆 Xem bảng xếp hạng &amp; đáp án đúng</a>
+  </div>
+</div>
+
+<!-- MÀN HÌNH XEM CÔNG KHAI (không cần tham gia đội) -->
+<div id="publicResultsScreen" style="display:none;" class="card">
+  <h2 style="color:#4da6ff; text-align:center;">🏆 Bảng Xếp Hạng &amp; Đáp Án</h2>
+  <p id="publicStatus" style="text-align:center; color:#888;"></p>
+  <div id="publicLeaderboard"></div>
+  <div id="publicAnswers" style="margin-top:20px;"></div>
+  <button onclick="hidePublicResults()" style="margin-top:15px; background:#333;">⬅ Quay lại</button>
 </div>
 
 <!-- BƯỚC 2: ĐẶT CƯỢC -->
@@ -150,6 +162,9 @@
     updateStatusPill();
     if (gameState.status === 'revealed' && hasSubmitted) {
       showResults();
+    }
+    if (document.getElementById('publicResultsScreen').style.display !== 'none') {
+      renderPublicResults();
     }
   });
 
@@ -312,6 +327,50 @@
     latestQuestionsData = snap.val() || {};
     renderQuestionText();
   });
+
+  // ====== XEM BẢNG XẾP HẠNG & ĐÁP ÁN CÔNG KHAI (không cần tham gia đội) ======
+  function showPublicResults() {
+    document.getElementById('joinScreen').style.display = 'none';
+    document.getElementById('publicResultsScreen').style.display = 'block';
+    renderPublicResults();
+  }
+
+  function hidePublicResults() {
+    document.getElementById('publicResultsScreen').style.display = 'none';
+    document.getElementById('joinScreen').style.display = 'block';
+  }
+
+  async function renderPublicResults() {
+    await readyPromise; // đảm bảo đã biết số câu hỏi
+    const statusEl = document.getElementById('publicStatus');
+    const lbEl = document.getElementById('publicLeaderboard');
+    const ansEl = document.getElementById('publicAnswers');
+
+    if (gameState.status !== 'revealed') {
+      statusEl.textContent = 'Giáo viên chưa công bố kết quả — quay lại sau nhé!';
+      lbEl.innerHTML = '';
+      ansEl.innerHTML = '';
+      return;
+    }
+    statusEl.textContent = '';
+
+    const teamsSnap = await db.ref('teams').once('value');
+    const teams = Object.values(teamsSnap.val() || {}).filter(t => t.submitted);
+    teams.sort((a, b) => (b.balance || 0) - (a.balance || 0));
+    const medals = ['🥇', '🥈', '🥉'];
+    lbEl.innerHTML = '<h3>Bảng xếp hạng</h3>' + (teams.map((t, i) =>
+      `<div class="leader-row"><span><span class="rank">${medals[i] || (i + 1)}</span> ${t.name}</span><strong>${t.balance} xu</strong></div>`
+    ).join('') || '<p class="muted">Chưa có đội nào nộp bài</p>');
+
+    const answersSnap = await db.ref('answers').once('value');
+    const answers = answersSnap.val() || {};
+    let html = '<h3 style="margin-top:20px;">Đáp án đúng</h3><table class="summary-table"><thead><tr><th>Câu</th><th>Đáp án đúng</th></tr></thead><tbody>';
+    for (let i = 1; i <= TOTAL_QUESTIONS; i++) {
+      html += `<tr><td>Câu ${i}</td><td>${answers[i] || '—'}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    ansEl.innerHTML = html;
+  }
 
   async function joinTeam() {
     const name = document.getElementById('teamNameInput').value.trim();
