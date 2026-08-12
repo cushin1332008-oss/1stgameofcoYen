@@ -26,6 +26,8 @@
   .input-box input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; text-align: center; font-size: 1rem; }
   .input-box.correct input { border-color: #28a745; box-shadow: 0 0 0 1px #28a745; }
   .input-box.wrong input { border-color: #ff4d4d; box-shadow: 0 0 0 1px #ff4d4d; opacity: 0.6; }
+  .coin-input.over-budget { border-color: #ff4d4d !important; box-shadow: 0 0 0 1px #ff4d4d; background: #3a1f1f !important; animation: shake 0.3s; }
+  @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
   .text-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #2b2b2b; color: #fff; font-size: 1rem; margin-top: 5px; }
   button { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 10px; font-size: 1.1rem; font-weight: bold; cursor: pointer; margin-top: 10px; }
   button:disabled { background: #555; opacity: 0.6; cursor: not-allowed; }
@@ -156,10 +158,23 @@
   let hasSubmitted = false;
   let gameState = { status: "open", correctAnswers: {} };
 
+  // Cảnh báo trước khi rời trang nếu đang gõ dở cược (chưa nộp bài) để tránh mất công gõ lại
+  window.addEventListener('beforeunload', function (e) {
+    const formVisible = document.getElementById('betForm').style.display !== 'none';
+    if (!formVisible || hasSubmitted) return;
+    let hasAnyBet = false;
+    document.querySelectorAll('.coin-input').forEach(input => { if ((parseInt(input.value) || 0) > 0) hasAnyBet = true; });
+    if (hasAnyBet) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
   // Lắng nghe trạng thái ván chơi theo thời gian thực
   db.ref('game').on('value', snap => {
     gameState = snap.val() || { status: "open", correctAnswers: {} };
     updateStatusPill();
+    if (gameState.status !== 'revealed') revealEffectPlayed = false;
     if (gameState.status === 'revealed' && hasSubmitted) {
       showResults();
     }
@@ -458,8 +473,15 @@
     let remaining = TOTAL_BUDGET - spent;
     const display = document.getElementById('coinDisplay');
     const btn = document.getElementById('submitBtn');
+    const isOver = remaining < 0;
 
-    if (remaining < 0) {
+    // Tô đỏ trực tiếp các ô đang có xu (không chỉ báo tổng cuối cùng) khi vượt ngân sách, để học sinh biết ngay cần bớt ô nào
+    document.querySelectorAll('.coin-input').forEach(input => {
+      const val = parseInt(input.value) || 0;
+      input.classList.toggle('over-budget', isOver && val > 0);
+    });
+
+    if (isOver) {
       display.innerText = `VƯỢT QUÁ ${Math.abs(remaining)} XU!`;
       display.style.color = '#ff4d4d';
       btn.disabled = true;
@@ -528,10 +550,74 @@
     });
   }
 
+  // ====== HIỆU ỨNG KHI CÔNG BỐ KẾT QUẢ (chỉ phát 1 lần mỗi lần công bố) ======
+  let revealEffectPlayed = false;
+
+  function playRevealSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const now = ctx.currentTime;
+      [523.25, 659.25, 783.99].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.0001, now + i * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.2, now + i * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.12 + 0.9);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + i * 0.12);
+        osc.stop(now + i * 0.12 + 0.9);
+      });
+    } catch (e) { /* trình duyệt không hỗ trợ âm thanh -> bỏ qua, không ảnh hưởng gì khác */ }
+  }
+
+  function launchConfetti() {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:9999;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+    const colors = ['#ffd700', '#28a745', '#4da6ff', '#ff4d4d', '#ffb84d'];
+    const particles = Array.from({ length: 110 }, () => ({
+      x: Math.random() * canvas.width,
+      y: -20 - Math.random() * canvas.height * 0.3,
+      r: 4 + Math.random() * 4,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      vy: 2 + Math.random() * 3,
+      vx: -1.5 + Math.random() * 3,
+      rot: Math.random() * 360,
+      vrot: -6 + Math.random() * 12
+    }));
+    let frame = 0;
+    function draw() {
+      frame++;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => {
+        p.x += p.vx; p.y += p.vy; p.rot += p.vrot;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.r / 2, -p.r / 2, p.r, p.r * 1.6);
+        ctx.restore();
+      });
+      if (frame < 220) requestAnimationFrame(draw); else canvas.remove();
+    }
+    draw();
+  }
+
   function showResults() {
     document.getElementById('waitingScreen').style.display = 'none';
     document.getElementById('betForm').style.display = 'none';
     document.getElementById('joinScreen').style.display = 'none';
+
+    if (!revealEffectPlayed) {
+      revealEffectPlayed = true;
+      playRevealSound();
+      launchConfetti();
+    }
 
     db.ref('teams/' + currentTeamKey).once('value').then(snap => {
       const team = snap.val();
