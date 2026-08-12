@@ -322,6 +322,19 @@
 
     const key = safeTeamKey(name);
     const ref = db.ref('teams/' + key);
+
+    // Kiểm tra trước: nếu ván đã công bố kết quả và đội này CHƯA từng tồn tại/nộp bài, chặn ngay từ đầu, không tạo đội "rác"
+    if (gameState.status === 'revealed') {
+      const existingSnap = await ref.once('value');
+      const existing = existingSnap.val();
+      if (!existing || !existing.submitted) {
+        showError('Ván chơi này đã kết thúc và công bố kết quả rồi, bạn không kịp tham gia. Chờ giáo viên bắt đầu ván mới nhé.');
+        document.getElementById('joinBtn').disabled = false;
+        document.getElementById('joinBtn').textContent = 'VÀO TRÒ CHƠI';
+        return;
+      }
+    }
+
     try {
       const result = await ref.transaction(current => {
         if (current === null) {
@@ -345,8 +358,10 @@
           showWaitingScreen();
         }
       } else {
-        if (gameState.status === 'locked') {
-          showError('Giáo viên đã khoá đặt cược, bạn không kịp tham gia lần này.');
+        if (gameState.status === 'locked' || gameState.status === 'revealed') {
+          showError(gameState.status === 'revealed'
+            ? 'Ván chơi này đã kết thúc và công bố kết quả rồi, bạn không kịp tham gia. Chờ giáo viên bắt đầu ván mới nhé.'
+            : 'Giáo viên đã khoá đặt cược, bạn không kịp tham gia lần này.');
           document.getElementById('joinScreen').style.display = 'block';
           document.getElementById('joinBtn').disabled = false;
           document.getElementById('joinBtn').textContent = 'VÀO TRÒ CHƠI';
@@ -392,12 +407,13 @@
     } else {
       display.innerText = `${remaining} / ${TOTAL_BUDGET} xu còn lại`;
       display.style.color = '#ffd700';
-      btn.disabled = gameState.status === 'locked';
+      btn.disabled = (gameState.status === 'locked' || gameState.status === 'revealed');
     }
   }
 
   async function submitBets() {
     if (gameState.status === 'locked') { showError('Giáo viên vừa khoá đặt cược!'); return; }
+    if (gameState.status === 'revealed') { showError('Ván chơi đã kết thúc và công bố kết quả rồi, không thể nộp bài nữa.'); return; }
 
     let spent = 0;
     let bets = emptyBets();
